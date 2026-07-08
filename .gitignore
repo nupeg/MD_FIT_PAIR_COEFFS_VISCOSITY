@@ -1,0 +1,12 @@
+venv
+env
+config*
+
+.venv
+.env
+.config*
+
+test*
+
+*.egg-info
+__pycache__

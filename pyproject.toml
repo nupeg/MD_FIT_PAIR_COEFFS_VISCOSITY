@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "viscofit"
+version = "0.1.0"
+description = "Calibration of Lennard-Jones parameters to reproduce viscosities of aqueous strong electrolyte mixtures using experimental data collected from the literature."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+authors = [
+    { name = "João Lucas" }
+]
+
+dependencies = [
+    "polars==1.42",
+    "scikit-optimize==0.10",
+    "fastexcel==0.20.2",
+    "coolname==5.0.0"
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "main*"]

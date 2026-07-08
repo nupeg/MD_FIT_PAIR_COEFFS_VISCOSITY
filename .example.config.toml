@@ -1,0 +1,19 @@
+# This TOML file contains process configuration settings and serves as a template.
+# It should not be edited, as any changes made here will be overwritten during updates.
+# To customize your settings, create a COPY of this file, rename it to ".config", and edit that file instead.
+
+# NOTE: Use literal "none" to represent nothing.
+
+[FIT_PARAMS]
+
+# Folder where optimization checkpoints are stored. Created automatically if missing.
+CHECKPOINT_FOLDER = "./fit_params_checkpoints"
+
+# Folder where optimization results are stored. Created automatically if missing.
+RESULTS_FOLDER = ""
+
+# Maximum number of objective function evaluations during optimization.
+N_CALLS = "none"
+
+# Seed used to make optimization results reproducible.
+RANDOM_STATE = "none"
