@@ -1,6 +1,6 @@
 from typing import final
 
-from viscofit.utils import ask_user_choice
+from viscofit.utils import ask_user_choice, docstring
 from viscofit.settings import DEFAULT_SETTINGS_FILEPATH, Settings
 
 from viscofit.experiments import (
@@ -17,17 +17,17 @@ class AvailableExperiments(ExperimentRegister):
     E1 = Experiment(
         func=preliminar_tests, 
         name='preliminar-tests', 
-        description='Fit Lennard-Jones parameters with Bayesian Optimization using preliminar-tests data'
+        description=docstring(preliminar_tests)
     )
     E2 = Experiment(
         func=fit_params, 
         name='fit-params', 
-        description='Fit Lennard-Jones parameters with Bayesian Optimization using fit-params data'
+        description=docstring(fit_params)
     )
     E3 = Experiment(
         func=evaluate_madrid_2019, 
         name='evaluate-madrid-2019', 
-        description='Calculate viscosity using madrid-2019 coefficents'
+        description=docstring(evaluate_madrid_2019)
     )
 
 
