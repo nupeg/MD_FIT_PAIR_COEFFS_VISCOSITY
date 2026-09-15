@@ -1,0 +1,128 @@
+#------------------------------------------------------
+#	USER-INPUTS
+#------------------------------------------------------
+             	
+variable    	Temperature	    equal  ${INPUT_TEMPERATURE}
+variable    	Pressure	    equal  ${INPUT_PRESSURE}                      
+variable        StartBoxFile    string ${INPUT_START_BOX_FILE} 
+variable        CoeffsFile      string ${INPUT_COEFFS_FILE}
+
+#------------------------------------------------------
+#	INITIALIZING INTERNAL VARIABLES & LOOP
+#------------------------------------------------------
+
+variable    StartStep       index 1 
+variable    NumTrajectorys 	index 30
+variable	RandomState	    index 100 	
+variable	OneMillion	    equal 1.0E6
+variable	NptSteps        equal 1.0 * v_OneMillion	
+variable	NvtSteps	    equal 2.0 * v_OneMillion	
+variable 	Bootstrap 	    loop ${StartStep} ${NumTrajectorys}
+
+
+			                                
+
+#------------------------------------------------------
+#	SIMULATION-INIT
+#------------------------------------------------------
+
+label InitLoopPoint
+
+variable Seed equal ceil(random(1,1000000,${RandomState}))
+	
+print "================================================"
+print " Bootstrap trajectory ${Bootstrap}/${NumTrajectorys}"
+print "================================================"
+print "Velocity random state: ${Seed}"
+
+
+units		    real
+boundary	    p p p
+dimension	    3
+atom_style	    full
+
+pair_style 	    lj/cut/tip4p/long 1 2 1 1 0.1546 10.0
+bond_style	    harmonic
+angle_style     harmonic
+kspace_style    pppm/tip4p 1.0e-4
+kspace_modify   mesh 10 10 10
+
+# fs
+timestep        1.0 
+
+
+#------------------------------------------------------
+#	READ START BOX AND COEFFS
+#------------------------------------------------------
+
+read_data	    ${StartBoxFile} nocoeff
+include     	${CoeffsFile}      				
+
+group           water type 1 2
+fix             tip4p water shake 0.0001 100 0 b 1 a 1
+
+
+#------------------------------------------------------
+#	ENERGY MINIMIZATION
+#------------------------------------------------------
+
+thermo			100 
+minimize 		1.0e-4 1.0e-6 100 1000
+
+
+#------------------------------------------------------
+#	SYSTEM RELAXATION
+#------------------------------------------------------
+reset_timestep 0
+
+fix             tip4p water shake 0.0001 100 0 b 1 a 1	
+velocity     	all create ${Temperature} ${Seed} mom yes rot yes dist gaussian
+
+fix		        NPT all npt temp ${Temperature} ${Temperature} $(100*dt) iso ${Pressure} ${Pressure} $(1000*dt)  
+
+thermo_modify	flush yes
+thermo_style	custom step time density temp press etotal 
+thermo		    10000
+
+neigh_modify 	every 2 delay 0 check yes
+fix         	equilibrium all print 1000 "$(time) $(density) $(temp) $(press) $(etotal)" file npt_${Bootstrap}.EQ title "time density temperature pressure total_energy" screen no 
+
+run 		    ${NptSteps}    					 
+
+unfix		    NPT
+unfix       	equilibrium
+	
+
+
+#------------------------------------------------------
+#	GREEN-KUBO
+#------------------------------------------------------
+reset_timestep  0
+
+fix          	NVT all nvt temp ${Temperature} ${Temperature} $(100*dt)
+
+thermo_modify	flush yes
+thermo_style	custom step temp vol pxy pyz pxz pxx pyy pzz time etotal
+thermo		    10000
+
+neigh_modify 	every 2 delay 0 check yes
+
+fix     	    simulation all print 1 "$(temp) $(vol) $(pxy) $(pyz) $(pxz) $(pxx) $(pyy) $(pzz) $(time) $(etotal)" file traj_${Bootstrap}.RUN title "time temperature volume pxy pyz pxz pxx pyy pzz total_energy" screen no
+
+run	    	    ${NvtSteps}           
+
+unfix		    NVT
+unfix 		    simulation
+
+clear 
+
+next 	        Bootstrap	
+jump	        SELF InitLoopPoint	 
+
+
+
+
+
+
+
+

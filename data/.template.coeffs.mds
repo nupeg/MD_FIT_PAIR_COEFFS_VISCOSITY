@@ -1,0 +1,10 @@
+# Pair-Coefficients template file for lammps input
+
+
+# Atom-types
+${INPUT_ATOM_TYPES_DESCRIPTION}
+
+
+# AtomType-01   AtomType-02     Epsilon     Sigma 
+
+${INPUT_PAIR_COEFFS}

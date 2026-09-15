@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Iodine molecule
+
+atom_type   I
+mass        I   I
+charge      I*  -0.85
+atom        I   I
+
+build
+1
+I       0.0 0.0 0.0

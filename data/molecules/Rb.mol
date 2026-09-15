@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Rubidium molecule
+
+atom_type   Rb
+mass        Rb   Rb
+charge      Rb*  0.85
+atom        Rb   Rb
+
+build
+1
+Rb       0.0 0.0 0.0

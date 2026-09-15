@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Chlorine molecule
+
+atom_type   Cl
+mass        Cl   Cl
+charge      Cl*  -0.85
+atom        Cl   Cl
+
+build
+1
+Cl       0.0 0.0 0.0

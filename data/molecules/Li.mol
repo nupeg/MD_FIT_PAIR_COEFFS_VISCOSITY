@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Lithium molecule
+
+atom_type   Li
+mass        Li   Li
+charge      Li*  0.85
+atom        Li   Li
+
+build
+1
+Li       0.0 0.0 0.0

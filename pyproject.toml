@@ -7,22 +7,23 @@ name = "viscofit"
 version = "0.1.0"
 description = "Calibration of Lennard-Jones parameters to reproduce viscosities of aqueous strong electrolyte mixtures using experimental data collected from the literature."
 readme = "README.md"
-license = { file = "LICENSE" }
-requires-python = ">=3.13"
+license = {file = "LICENSE"}
 authors = [
-    { name = "João Lucas" }
+    {name = "João Lucas H. Detogni"}
 ]
 
 dependencies = [
-    "polars==1.42",
-    "scikit-optimize==0.10",
-    "fastexcel==0.20.2",
-    "coolname==5.0.0"
+    "polars[excel]==1.42.0",
+    "optuna==3.6.1",
+    "coolname==5.0.0",
+    "tqdm==4.68.4",
+    "questionary==2.1.1"
 ]
+requires-python = ">=3.12"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "main*"]
+where = ["src"]
+include = ["viscofit*"]

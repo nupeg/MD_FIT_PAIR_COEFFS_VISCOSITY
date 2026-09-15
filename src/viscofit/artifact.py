@@ -1,23 +1,9 @@
 from typing import (
     Any,
-    Self,
-    Union,
-    Iterable,
-    Mapping, 
-    Optional, 
-    TypeAlias,
-    Protocol,
+    Self
 )
 from os import PathLike
-from pathlib import Path    
-from enum import StrEnum
-from shutil import copy2
 from dataclasses import dataclass
-
-from skopt import gp_minimize
-from skopt.utils import use_named_args
-from skopt.space import Dimension
-from skopt.callbacks import CheckpointSaver
 
 from polars import DataFrame
 from scipy.optimize import OptimizeResult

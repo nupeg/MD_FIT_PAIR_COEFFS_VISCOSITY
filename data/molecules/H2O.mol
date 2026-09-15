@@ -1,0 +1,27 @@
+# Water molecule based in TIP4P/2005 (https://docs.lammps.org/Howto_tip4p.html )
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+
+atom_type   OW 
+atom_type   HW         
+         
+mass        OW          15.9994
+mass        HW          1.008 
+
+diameter    OW          3.1
+diameter    HW          2.0
+
+bond_type   HW OW       harmonic    235.00  0.9572
+angle_type  HW OW HW    harmonic    100.00 104.52
+
+atom        O  OW       -1.1128
+atom        H1 HW       0.5564
+atom        H2 HW       0.5564
+
+bond        O  H1
+bond        O  H2
+
+build
+3
+O       -0.00005     -0.00005      0.25416
+H1      -0.54020      0.54015     -0.34240
+H2       0.54015     -0.54020     -0.34240

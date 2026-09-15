@@ -1,0 +1,14 @@
+# Template file for Playmol software from ATOMS (http://atoms.peq.coppe.ufrj.br/playmol/) 
+# Dump a lammps start-box for molecular dynamics (https://www.lammps.org/)
+# Dump a xyz start-box for visualization (https://www.ovito.org/)
+
+# Molecule filenames (example CH4.mol)
+
+${INPUT_MOLECULE_FILENAMES}
+
+improper     search
+box          lengths ${INPUT_BOX_SIZE}
+packmol      retry 0.95 ${INPUT_PACKS}
+packmol      action execute
+write        lammps ${INPUT_DUMP_LAMMPS_FILENAME}
+write        xyz    ${INPUT_DUMP_XYZ_FILENAME}

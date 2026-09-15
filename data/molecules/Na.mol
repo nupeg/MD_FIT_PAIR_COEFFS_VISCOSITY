@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Sodium molecule
+
+atom_type   Na
+mass        Na   Na
+charge      Na*  0.85
+atom        Na   Na
+
+build
+1
+Na       0.0 0.0 0.0

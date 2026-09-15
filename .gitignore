@@ -1,12 +1,17 @@
+artifacts
 venv
 env
 config*
+vscode
 
+.vscode
 .venv
 .env
 .config*
 
 test*
 
+*ini
 *.egg-info
+
 __pycache__

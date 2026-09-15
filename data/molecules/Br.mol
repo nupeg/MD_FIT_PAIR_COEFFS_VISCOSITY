@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Bromine molecule
+
+atom_type   Br
+mass        Br   Br
+charge      Br*  -0.85
+atom        Br   Br
+
+build
+1
+Br       0.0 0.0 0.0

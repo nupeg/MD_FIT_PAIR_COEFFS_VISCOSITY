@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Fluor molecule
+
+atom_type   F
+mass        F   F
+charge      F*  -0.85
+atom        F   F
+
+build
+1
+F       0.0 0.0 0.0

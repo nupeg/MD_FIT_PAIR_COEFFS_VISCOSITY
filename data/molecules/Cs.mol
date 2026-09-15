@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Cesium molecule
+
+atom_type   Cs
+mass        Cs   Cs
+charge      Cs*  0.85
+atom        Cs   Cs
+
+build
+1
+Cs       0.0 0.0 0.0

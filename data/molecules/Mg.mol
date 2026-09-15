@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Magnesium molecule
+
+atom_type   Mg
+mass        Mg   Mg
+charge      Mg*  1.7
+atom        Mg   Mg
+
+build
+1
+Mg       0.0 0.0 0.0

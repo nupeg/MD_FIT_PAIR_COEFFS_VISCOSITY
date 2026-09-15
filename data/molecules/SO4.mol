@@ -1,0 +1,41 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Sulfate molecule
+
+# Bond and angle types parameters
+# DOI: https://doi.org/10.1021/acs.iecr.0c04290
+
+atom_type   S         
+atom_type   OS          
+
+mass        S           32.0650
+mass        OS          15.9994
+
+charge      S*           0.9
+charge      OS*         -0.65
+
+bond_type   S OS       harmonic   525.150 	1.487
+angle_type  OS S OS    harmonic   139.920	109.470 
+
+atom        S    	S       
+atom        OS1  	OS      
+atom        OS2  	OS      
+atom        OS3  	OS     
+atom        OS4  	OS      
+
+
+bond        S OS1   
+bond        S OS2   
+bond        S OS3   
+bond        S OS4   
+
+build 
+
+5
+
+S           	1.21356      1.15863      0.09880
+OS1         	2.40202      1.16036      0.92962
+OS2         	1.20810      2.34188     -0.73930
+OS3         	1.21012     -0.02597     -0.73744
+OS4         	0.03391      1.15838      0.94205
+
+

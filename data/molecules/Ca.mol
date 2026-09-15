@@ -1,0 +1,11 @@
+# Language: Playmol (http://atoms.peq.coppe.ufrj.br/playmol/)
+# Calcium molecule
+
+atom_type   Ca
+mass        Ca   Ca
+charge      Ca*  1.7
+atom        Ca   Ca
+
+build
+1
+Ca       0.0 0.0 0.0
