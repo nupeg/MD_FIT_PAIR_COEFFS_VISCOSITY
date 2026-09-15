@@ -10,7 +10,7 @@ from typing import (
 
 import polars as pl
 
-from src.viscofit.utils import type_name, keys, values, coalesce, pipe
+from viscofit.utils import type_name, keys, values, coalesce, pipe
 
 PolarsLike:         TypeAlias = Any
 ColumnName:         TypeAlias = str
@@ -127,7 +127,20 @@ def remove_empty_rows(data: PolarsLike, /, empty_values: Optional[Iterable[Any]]
     )
     return transform_dataframe(data).filter(~is_empty)
 
+def apply_table_schema(data: PolarsLike, schema: Mapping[ColumnName: tuple[str, pl.DataType] ], /) -> pl.DataFrame:
+    renaming = {}
+    casting = {}
 
+    for name, (new_name, dtype) in schema.items():
+        renaming[name] = new_name
+        casting[new_name] = dtype
+
+    dataframe = (
+        transform_dataframe(data)
+        .rename(renaming, strict=True)
+        .cast(casting, strict=True)
+    )
+    return dataframe
 
 def to_lowercase(column: ColumnName | pl.Expr, /) -> pl.Expr:
     return to_expr(column).str.to_lowercase()

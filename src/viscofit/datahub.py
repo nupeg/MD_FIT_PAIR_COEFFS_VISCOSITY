@@ -14,15 +14,16 @@ from string import Template
 
 import polars as pl
 
-from src.viscofit.utils import (
+from viscofit.utils import (
     mro,
     cache,
     search_files, 
     map_filenames,
     split_selecting,
 )
-from src.viscofit.tables import (
-    select_renaming, 
+from viscofit.tables import (
+    select_renaming,
+    apply_table_schema,
     select_casting, 
     cast_columns,
     is_filled,
@@ -34,6 +35,7 @@ from src.viscofit.tables import (
 
 FOLDER_MOLECULES:                   str = r'data/molecules'
 
+FILEPATH_EXPERIMENTS:               str = r'data/experiments.xlsx'
 FILEPATH_SYSTEMS:                   str = r'data/systems.xlsx'
 FILEPATH_COEFFS:                    str = r'data/coeffs.xlsx'
 FILEPATH_ELECTROLYTES_META:         str = r'data/electrolytes_meta.xlsx'
@@ -113,7 +115,7 @@ class SystemSchema(ElectrolyteSchema, TableSchema):
     REFERENCE   = ColumnDef('REFERENCE', str)
     NOTES       = ColumnDef('NOTES', str)
     MOLALITY    = ColumnDef('MOLALITY_MOL_KG', float)
-    PRESSURE    = ColumnDef('PRESSURE_BAR', float)
+    PRESSURE    = ColumnDef('PRESSURE_ATM', float)
     TEMPERATURE = ColumnDef('TEMPERATURE_KELVIN', float)
     VISCOSITY   = ColumnDef('VISCOSITY_CP', float)
 
@@ -122,6 +124,8 @@ class DataContext(StrEnum):
     FIT_PARAMS              = 'fit_params'
     PRELIMINAR_TEST         = 'preliminar_test'
     EVALUATE_MADRID_2019    = 'evaluate_madrid_2019'
+
+
 
 def is_column_definition(data: Any, /) -> TypeGuard[ColumnDef]:
     return isinstance(data, ColumnDef)
@@ -147,7 +151,8 @@ def read_text(filepath: PathLike, /) -> str:
 
 @cache
 @match_schema(ElectrolyteSchema)
-def load_electrolytes_meta() -> pl.DataFrame: ...
+def load_electrolytes_meta() -> pl.DataFrame: 
+    ...
    
 @cache
 @match_schema(CoeffRangeSchema)
@@ -159,7 +164,25 @@ def load_coeffs(source: DataContext, /) -> pl.DataFrame:  ...
 
 @cache
 @match_schema(SystemSchema)
-def load_systems(source: DataContext, /) -> pl.DataFrame: ...
+def load_systems(source: DataContext, /) -> pl.DataFrame:
+    dataframe = pl.read_excel(FILEPATH_EXPERIMENTS, sheet_name='SYSTEMS')
+    
+    dataframe = apply_table_schema(dataframe, {
+        'EXPERIMENT':           ('EXPERIMENT',              pl.String),
+        'ELECTROLYTE':          (SystemSchema.ELECTROLYTE,  pl.String),
+        'MOLALITY_MOL_KG':      (SystemSchema.MOLALITY,     pl.Float64),
+        'TEMPERATURE_KELVIN':   (SystemSchema.TEMPERATURE,  pl.Float64),
+        'PRESSURE_ATM':         (SystemSchema.PRESSURE,     pl.Float64),
+        'VISCOSITY_CP':         (SystemSchema.VISCOSITY,    pl.Float64),
+        'REFERENCE':            (SystemSchema.REFERENCE,    pl.String)
+    })
+    dataframe = dataframe.filter(
+        pl.col('EXPERIMENT') == pl.lit(source)
+    )
+    print(dataframe)
+
+load_systems(DataContext.FIT_PARAMS)
+
 
 
 @cache

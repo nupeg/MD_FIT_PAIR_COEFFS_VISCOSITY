@@ -29,7 +29,7 @@ from shutil import copy
 from platform import system
 from subprocess import CREATE_NEW_CONSOLE, run
 
-from questionary import Style, select
+from questionary import Style, Choice, select
 from coolname import generate_slug
 
 @runtime_checkable
@@ -91,7 +91,7 @@ def generate_integer() -> int:
 def type_name(it: Any, /) -> str:
     return getattr(type(it), '__name__', 'unnamed_type')
 
-def name(it: Any, /, default: Optional[str]=None) -> str:
+def get_name(it: Any, /, default: Optional[str]=None) -> str:
     if default is None:
         default = 'unnamed'
     return str(getattr(it, '__name__', default))
@@ -268,7 +268,7 @@ def ask_user_choice(options: Iterable[str] | Mapping[str, str], /) -> str:
 
     if isinstance(options, Mapping):
         options = (
-            {'name': f'{name} | {description}', 'value': name} for name, description in options.items()
+            Choice(title=name, value=name, description=description) for name, description in options.items()
         )
     choices = list(options)
     
@@ -305,3 +305,6 @@ def execute_script(filepath: PathLike, cmd: str | Iterable[str], /, new_terminal
         creationflags = CREATE_NEW_CONSOLE
 
     run(cmd_parts, cwd=folder_path, creationflags=creationflags, check=True, text=True, shell=False)
+
+def docstring(func: Any, /) -> str:
+    return str(getattr(func, '__doc__', 'No documentation available.'))
