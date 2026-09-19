@@ -1,0 +1,32 @@
+## Dados metodológicos de Franco & Firoozabadi (2023)
+
+1) As dinâmicas foram realizadas com Npt + Nvt posterior?
+	Sim
+
+2) Qual foi o timestep (dt) das simulações?
+	Para o n-decano e todos os oligômeros de 1-deceno, o dt utilizado foi de 2 fs
+	Para o CO2 e n-pentano, o dt foi de 1 fs
+	
+3) Quantos steps foram realizados na etapa Npt?
+	Entre 500 mil - 2 milhões de steps
+
+4) Quantos steps foram realizados na etapa Nvt?
+	Entre 500 mil - 4,5 milhões de steps
+	Os tensores de stress (Pij) foram registrados a cada 5 fs
+
+5) Como foram utilizados os tensores de stress?
+	Pxy = Pxy
+	Pxz = Pxz
+	Pyz = Pyz
+	Pxx_yy = (Pxx - Pyy) / 2
+	Pyy_zz = (Pyy - Pzz) / 2
+	Pzz_xx = (Pzz - Pyy) / 2
+	
+6) Quantas trajetórias independentes foram aplicadas?
+	Entre 20-40 trajetórias independentes
+
+7) Quantas trajetórias independentes foram escolhidas em cada seleção aleatória do bootstrap?
+ 	São escolhidas o total de trajetórias independentes rodadas
+	As escolhas aleatórias são feitas COM REPOSIÇÃO
+	Isso significa que do total de trajetórias únicas, provavelmente haverá repetição (isso é esperado)
+	São realizadas 1000 rodadas de seleções aleatórias
