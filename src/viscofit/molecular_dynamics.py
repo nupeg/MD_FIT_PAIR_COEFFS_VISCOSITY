@@ -45,12 +45,12 @@ from viscofit.datahub import (
 from viscofit.tables import apply_table_schema
 from viscofit.protocols import MixtureRule
 
-BOLTZMAN_CONSTANT: Annotated[float, 'J/K'] = 1.380649e-23
+BOLTZMANN_CONSTANT: Annotated[float, 'J/K'] = 1.380649e-23
 
 ATM_TO_PA:              Final[float] = 101325
 ANGSTROM_TO_METER:      Final[float] = 1e-10
+PA_S_TO_CENTIPOISE:     Final[float] = 1000
 FEMTOSECOND_TO_SECOND:  Final[float] = 1e-15
-POISE_TO_CENTIPOISE:    Final[float] = 100
 
 Count:              TypeAlias = int
 Command:            TypeAlias = str
@@ -184,6 +184,8 @@ class ViscosityAssets:
     viscosity_curves:           Annotated[npt.NDArray, 'cP']
     average_viscosity_curve:    Annotated[npt.NDArray, 'cP']
     standard_viscosity_curve:   Annotated[npt.NDArray, 'cP']
+    viscosity_bootstraps:        Annotated[list[npt.NDArray], 'cP']
+    viscosity_estimates:        Annotated[list[float], 'cP']
     viscosity_average:          Annotated[float, 'cP']
     viscosity_uncertainty:      Annotated[float, 'cP']
 
@@ -311,13 +313,13 @@ def read_trajectory_data(filepath: PathLike, /) -> TrajectoryData:
         ( (pl.col('pyy') - pl.col('pzz')) / 2 ).alias('pyy_zz'),
         ( (pl.col('pzz') - pl.col('pxx')) / 2 ).alias('pzz_xx')
     )
-
-    pxy     = data['pxy']
-    pyz     = data['pyz']
-    pxz     = data['pxz']
-    pxx_yy  = data['pxx_yy']
-    pyy_zz  = data['pyy_zz']
-    pzz_xx  = data['pzz_xx']
+    
+    pxy     = data['pxy'].to_numpy()
+    pyz     = data['pyz'].to_numpy()
+    pxz     = data['pxz'].to_numpy()
+    pxx_yy  = data['pxx_yy'].to_numpy()
+    pyy_zz  = data['pyy_zz'].to_numpy()
+    pzz_xx  = data['pzz_xx'].to_numpy()
 
     volume = np.mean(data['vol'])
     timestep = np.mean(data['dt'])
@@ -461,19 +463,24 @@ def calculate_viscosity_assets(simulation_folder_path: PathLike, /) -> Viscosity
             autocorrelation_function(trajectory.pzz_xx),
         ])
         average_autocorrelation: Annotated[npt.NDArray, 'Pa²'] = np.mean(autocorrelations, axis=0)
-        green_kubo_constant: Annotated[float, 'Pa⁻¹'] = trajectory.volume / (BOLTZMAN_CONSTANT * trajectory.temperature)
+        green_kubo_constant: Annotated[float, 'Pa⁻¹'] = trajectory.volume / (BOLTZMANN_CONSTANT * trajectory.temperature)
 
-        viscosity_curve_cP = POISE_TO_CENTIPOISE * green_kubo_constant * np.trapezoid(average_autocorrelation) * trajectory.timestep
-        viscosity_curves.append(viscosity_curve_cP)
-    
+        viscosity_curve: Annotated[npt.NDArray, 'cP'] = (
+            PA_S_TO_CENTIPOISE * 
+            green_kubo_constant * np.trapezoid(average_autocorrelation) * trajectory.timestep
+        )
+        viscosity_curves.append(viscosity_curve)
+        
     # NOTE: Bootstrap
     viscosity_estimates: list[float] = []
-    
+    viscosity_bootstraps: list[npt.NDArray] = []
+
     for _ in range(1001):
         samples = sample_with_replacement(viscosity_curves)
-        
-        viscosity_estimate = estimate_viscosity(samples)
-        viscosity_estimates.append(viscosity_estimate)
+        estimate = estimate_viscosity(samples)
+
+        viscosity_bootstraps.append(samples)
+        viscosity_estimates.append(estimate)
 
     viscosity_average, viscosity_uncertainty = measure(viscosity_estimates)
 
@@ -485,6 +492,8 @@ def calculate_viscosity_assets(simulation_folder_path: PathLike, /) -> Viscosity
         trajectory_files=trajectory_files,
         trajectory_count=trajectory_count,
         viscosity_curves=viscosity_curves,
+        viscosity_bootstraps=viscosity_bootstraps,
+        viscosity_estimates=viscosity_estimates,
         average_viscosity_curve=average_viscosity_curve,
         standard_viscosity_curve=standard_viscosity_curve,
         viscosity_average=viscosity_average,
