@@ -9,6 +9,9 @@ from typing import (
     Optional,
     NamedTuple,
     Iterator,
+    ParamSpec,
+    Sequence,
+    TypeAlias,
     runtime_checkable
 )
 from shutil import rmtree
@@ -32,9 +35,14 @@ from subprocess import CREATE_NEW_CONSOLE, run
 from questionary import Style, Choice, select
 from coolname import generate_slug
 
+import numpy as np
+import numpy.typing as npt
+
 @runtime_checkable
 class SupportsFspath(Protocol):
     def __fspath__(self) -> str: ...
+
+P = ParamSpec('P')
 
 T   = TypeVar('T')
 R   = TypeVar('R')
@@ -42,6 +50,9 @@ TF  = TypeVar('TF', bound=Callable)
 TK  = TypeVar('TK', bound=Hashable)
 TV  = TypeVar('TV', bound=object)
 
+
+Average:            TypeAlias = float
+Uncertainty:        TypeAlias = float
 
 class CheckpointNameParts(NamedTuple):
     version: int
@@ -154,6 +165,7 @@ def ensure_no_symlinks(path: PathLike, /) -> None:
             raise ValueError(
                 f'Symlink detected: {part}'
             )
+
         
 def run_parallel(items: Iterable[T], process: Callable[[T], R], njobs: Optional[int]=None, timeout: Optional[float]=None, maintain_order: bool=False) -> Iterator[R]: 
     with ThreadPoolExecutor(max_workers=njobs) as workers:
@@ -200,6 +212,7 @@ def run_work_pool(items: Iterable[T], processes: Iterable[Callable[[T], R]], /) 
         ]
         for future in as_completed(futures):
             yield from future.result()
+
 
 def split_selecting(text: str, index: int, /, sep: Optional[str]=None) -> str:
     return str(text).split(sep=sep)[index]
@@ -306,5 +319,42 @@ def execute_script(filepath: PathLike, cmd: str | Iterable[str], /, new_terminal
 
     run(cmd_parts, cwd=folder_path, creationflags=creationflags, check=True, text=True, shell=False)
 
+def mirror_signature(_: Callable[P, R], /) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        return func
+    return decorator
+
 def docstring(func: Any, /) -> str:
     return str(getattr(func, '__doc__', 'No documentation available.'))
+
+def calculate_deviations(ytrue: npt.ArrayLike, ycalc: npt.ArrayLike, absolute: bool=False, relative: bool=False, percentage: bool=False) -> npt.NDArray:
+    ytrue = np.asarray(ytrue)
+    ycalc = np.asarray(ycalc)
+
+    deviations = ycalc - ytrue
+    
+    if relative:
+        factor = 100 if percentage else 1.0
+        deviations = factor * (deviations / ytrue)
+
+    if absolute:
+        deviations = np.abs(deviations)
+    
+    return deviations
+
+def sample_with_replacement(values: npt.ArrayLike, /) -> npt.NDArray:
+    values = np.asarray(values)
+    size = len(values)
+    indices = np.random.randint(0, size, size=size)
+    return values[indices]
+
+def measure(values: Sequence[float], /) -> tuple[Average, Uncertainty]:
+    values = np.asarray(values, dtype=float)
+
+    average = np.mean(values)
+    uncertainty = np.std(values, ddof=1) / np.sqrt(len(values))
+
+    return average, uncertainty
+
+
+

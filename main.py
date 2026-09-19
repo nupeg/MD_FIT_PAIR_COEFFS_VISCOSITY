@@ -4,32 +4,21 @@ from viscofit.utils import ask_user_choice, docstring
 from viscofit.settings import DEFAULT_SETTINGS_FILEPATH, Settings
 
 from viscofit.experiments import (
-    Experiment, 
-    ExperimentRegister,
-    fit_params,
-    preliminar_tests,
-    evaluate_madrid_2019
+    pure_water_simulations
 )
+from viscofit.experiments_helpers import ExperimentRegister, Experiment
 
 
 @final
 class AvailableExperiments(ExperimentRegister):
-    E1 = Experiment(
-        func=preliminar_tests, 
-        name='preliminar-tests', 
-        description=docstring(preliminar_tests)
-    )
-    E2 = Experiment(
-        func=fit_params, 
-        name='fit-params', 
-        description=docstring(fit_params)
-    )
-    E3 = Experiment(
-        func=evaluate_madrid_2019, 
-        name='evaluate-madrid-2019', 
-        description=docstring(evaluate_madrid_2019)
-    )
-
+    experiments = [
+        Experiment(
+            func=pure_water_simulations, 
+            name='pure-water-simulations', 
+            description=docstring(pure_water_simulations)
+        )
+    ]
+    
 
 def main() -> None:
     options = AvailableExperiments.catalog()

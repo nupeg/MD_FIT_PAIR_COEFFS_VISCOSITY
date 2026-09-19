@@ -4,7 +4,8 @@ from typing import (
     TypeVar,
     Callable,
     Iterator, 
-    TypeGuard, 
+    TypeGuard,
+    Optional,
     final
 )
 from enum import StrEnum, auto
@@ -42,7 +43,7 @@ FILEPATH_ELECTROLYTES_META:         str = r'data/electrolytes_meta.xlsx'
 FILEPATH_COEFFS_TEMPLATE:           str = r'data/.template.coeffs.mds'
 FILEPATH_PLAYMOL_BOX_TEMPLATE:      str = r'data/.template.start_box.mds'
 FILEPATH_LAMMPS_VISCOSITY_TEMPLATE: str = r'data/.template.viscosity.mds'
-
+FILEPATH_PURE_WATER_RESULT:         str = r'data/outputs/pure_water_simulations.xlsx'
 
 TYPES_MAP_POLARS: dict[type, pl.DataType] = {
     str:    pl.String,
@@ -87,9 +88,10 @@ class TableSchema:
 class CoeffRangeSchema(TableSchema):
     ATOM_TYPE_1 = ColumnDef('ATOM_TYPE_1', str)
     ATOM_TYPE_2 = ColumnDef('ATOM_TYPE_2', str)
-    COEFF_TYPE  = ColumnDef('COEFF_TYPE', str)
-    LOWER_BOUND = ColumnDef('LOWER_BOUND', float)
-    UPPER_BOUND = ColumnDef('UPPER_BOUND', float)
+    SIGMA_MIN   = ColumnDef('SIGMA_MIN', float)
+    SIGMA_MAX   = ColumnDef('SIGMA_MAX', float)
+    EPSILON_MIN = ColumnDef('EPSILON_MIN', float)
+    EPSILON_MAX = ColumnDef('EPSILON_MAX', float)
 
 class CoeffSchema(TableSchema):
     ATOM_TYPE_1 = ColumnDef('ATOM_TYPE_1', str)
@@ -121,8 +123,9 @@ class SystemSchema(ElectrolyteSchema, TableSchema):
 
 
 class DataContext(StrEnum):
+    PURE_WATER_SIMULATIONS  = 'pure-water-simulations'
     FIT_PARAMS              = 'fit_params'
-    PRELIMINAR_TEST         = 'preliminar_test'
+    PRELIMINAR_TEST         = 'preliminar_tests'
     EVALUATE_MADRID_2019    = 'evaluate_madrid_2019'
 
 
@@ -145,28 +148,121 @@ def match_schema(schema: TableSchema, /, pause: bool=False) -> Callable[[TF], TF
 def write_text(filepath: PathLike, text: str, /) -> None:
     return Path(filepath).write_text(text, encoding='utf-8')
 
+def read_excel_file(filepath: PathLike, /, sheet_name: Optional[str]=None) -> pl.DataFrame:
+    return pl.read_excel(filepath, sheet_name=sheet_name, engine='calamine', infer_schema_length=0)
+
+
+
 @cache
 def read_text(filepath: PathLike, /) -> str:
     return Path(filepath).read_text(encoding='utf-8')
 
 @cache
 @match_schema(ElectrolyteSchema)
-def load_electrolytes_meta() -> pl.DataFrame: 
-    ...
+def load_electrolytes_meta() -> pl.DataFrame:
+    ions = read_excel_file(FILEPATH_ELECTROLYTES_META, sheet_name='IONS') 
+    electrolytes = read_excel_file(FILEPATH_ELECTROLYTES_META, sheet_name='ELECTROLYTES')
+
+    ions = transform_headers(ions, str.strip)
+    electrolytes = transform_headers(electrolytes, str.strip)
+    
+    electrolytes = apply_table_schema(electrolytes, {
+        'ELECTROLYTE':      (ElectrolyteSchema.ELECTROLYTE, pl.String),
+        'CATION':           (ElectrolyteSchema.CATION, pl.String),
+        'ANION':            (ElectrolyteSchema.ANION, pl.String),
+        'CATION_ESTEQ':     (ElectrolyteSchema.CATION_ESTEQ, pl.Int64),
+        'ANION_ESTEQ':      (ElectrolyteSchema.ANION_ESTEQ, pl.Int64)
+    })
+    ions = apply_table_schema(ions, {
+        'ION':              ('ION', pl.String),
+        'MOLAR_MASS_G_MOL': ('MOLAR_MASS_G_MOL', pl.Float64),
+        'CHARGE':           ('CHARGE', pl.Int64)
+    })
+
+    electrolytes = electrolytes.with_columns(
+        pl.col('CATION', 'ANION', 'ELECTROLYTE').str.strip_chars()
+    )
+    ions = ions.with_columns(
+        pl.col('ION').str.strip_chars()
+    )
+    electrolytes = electrolytes.join(
+        ions,
+        left_on='CATION',
+        right_on='ION',
+        validate='m:1'
+    ).rename({
+        'MOLAR_MASS_G_MOL': ElectrolyteSchema.CATION_MOLAR_MASS,
+        'CHARGE':           ElectrolyteSchema.CATION_CHARGE
+    })
+    electrolytes = electrolytes.join(
+        ions,
+        left_on='ANION',
+        right_on='ION',
+        validate='m:1'
+    ).rename({
+        'MOLAR_MASS_G_MOL': ElectrolyteSchema.ANION_MOLAR_MASS,
+        'CHARGE':           ElectrolyteSchema.ANION_CHARGE
+    })
+    electrolytes = electrolytes.with_columns(
+        (
+            pl.col(ElectrolyteSchema.ANION_MOLAR_MASS) * pl.col(ElectrolyteSchema.ANION_ESTEQ) +
+            pl.col(ElectrolyteSchema.CATION_MOLAR_MASS) * pl.col(ElectrolyteSchema.CATION_ESTEQ)
+        ).alias(
+            ElectrolyteSchema.ELECTROLYTE_MOLAR_MASS
+        )
+    )
+    return electrolytes
    
 @cache
 @match_schema(CoeffRangeSchema)
-def load_coeffs_range(source: DataContext, /) -> pl.DataFrame: ...
+def load_coeffs_range(source: DataContext, /) -> pl.DataFrame: 
+    dataframe = read_excel_file(FILEPATH_EXPERIMENTS, sheet_name='PAIR-COEFF-RANGES')
 
+    dataframe = transform_headers(dataframe, str.strip)
+    dataframe = apply_table_schema(dataframe, {
+        'EXPERIMENT':   ('EXPERIMENT',                  pl.String),
+        'ATOM_TYPE_01': (CoeffRangeSchema.ATOM_TYPE_1,  pl.String),
+        'ATOM_TYPE_02': (CoeffRangeSchema.ATOM_TYPE_2,  pl.String),
+        'EPSILON_MIN':  (CoeffRangeSchema.EPSILON_MIN,  pl.Float64),
+        'EPSILON_MAX':  (CoeffRangeSchema.EPSILON_MAX,  pl.Float64),
+        'SIGMA_MIN':    (CoeffRangeSchema.SIGMA_MIN,    pl.Float64),
+        'SIGMA_MAX':    (CoeffRangeSchema.SIGMA_MAX,    pl.Float64)
+    })
+    dataframe = dataframe.with_columns(
+        pl.col('EXPERIMENT', CoeffRangeSchema.ATOM_TYPE_1, CoeffRangeSchema.ATOM_TYPE_2).str.strip_chars()
+    )
+    dataframe = dataframe.filter(
+        pl.col('EXPERIMENT') == pl.lit(source)
+    )
+    return dataframe
+    
 @cache
 @match_schema(CoeffSchema)
-def load_coeffs(source: DataContext, /) -> pl.DataFrame:  ...
+def load_coeffs(source: DataContext, /) -> pl.DataFrame:  
+    dataframe = read_excel_file(FILEPATH_EXPERIMENTS, sheet_name='PAIR-COEFF-VALUES')
+
+    dataframe = transform_headers(dataframe, str.strip)
+    dataframe = apply_table_schema(dataframe, {
+        'EXPERIMENT':       ('EXPERIMENT',              pl.String),
+        'ATOM_TYPE_01':     (CoeffSchema.ATOM_TYPE_1,   pl.String),
+        'ATOM_TYPE_02':     (CoeffSchema.ATOM_TYPE_2,   pl.String),
+        'EPSILON_VALUE':    (CoeffSchema.EPSILON,       pl.Float64),
+        'SIGMA_VALUE':      (CoeffSchema.SIGMA,         pl.Float64)
+    })
+    dataframe = dataframe.with_columns(
+        pl.col('EXPERIMENT', CoeffSchema.ATOM_TYPE_1, CoeffSchema.ATOM_TYPE_2).str.strip_chars()
+    )
+    dataframe = dataframe.filter(
+        pl.col('EXPERIMENT') == pl.lit(source)
+    )
+    return dataframe
 
 @cache
 @match_schema(SystemSchema)
 def load_systems(source: DataContext, /) -> pl.DataFrame:
-    dataframe = pl.read_excel(FILEPATH_EXPERIMENTS, sheet_name='SYSTEMS')
+    dataframe = read_excel_file(FILEPATH_EXPERIMENTS, sheet_name='SYSTEMS')
     
+    dataframe = transform_headers(dataframe, str.strip)
     dataframe = apply_table_schema(dataframe, {
         'EXPERIMENT':           ('EXPERIMENT',              pl.String),
         'ELECTROLYTE':          (SystemSchema.ELECTROLYTE,  pl.String),
@@ -176,12 +272,19 @@ def load_systems(source: DataContext, /) -> pl.DataFrame:
         'VISCOSITY_CP':         (SystemSchema.VISCOSITY,    pl.Float64),
         'REFERENCE':            (SystemSchema.REFERENCE,    pl.String)
     })
+    dataframe = dataframe.with_columns(
+        pl.col('EXPERIMENT', SystemSchema.ELECTROLYTE, SystemSchema.REFERENCE).str.strip_chars()
+    )
+    dataframe = dataframe.join(
+        load_electrolytes_meta(),
+        on=SystemSchema.ELECTROLYTE,
+        validate='m:1'
+    )
     dataframe = dataframe.filter(
         pl.col('EXPERIMENT') == pl.lit(source)
     )
-    print(dataframe)
+    return dataframe
 
-load_systems(DataContext.FIT_PARAMS)
 
 
 

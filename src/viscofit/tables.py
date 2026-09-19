@@ -5,14 +5,18 @@ from typing import (
     Mapping,
     Optional,
     TypeAlias,
-    Callable
+    Callable,
+    Sequence
 )
+from os import PathLike
+from pathlib import Path
 
+import xlsxwriter as xlw
 import polars as pl
 
 from viscofit.utils import type_name, keys, values, coalesce, pipe
 
-PolarsLike:         TypeAlias = Any
+PolarsLike:         TypeAlias = object
 ColumnName:         TypeAlias = str
 TextTransformer:    TypeAlias = Callable[[str], str]
 
@@ -127,7 +131,7 @@ def remove_empty_rows(data: PolarsLike, /, empty_values: Optional[Iterable[Any]]
     )
     return transform_dataframe(data).filter(~is_empty)
 
-def apply_table_schema(data: PolarsLike, schema: Mapping[ColumnName: tuple[str, pl.DataType] ], /) -> pl.DataFrame:
+def apply_table_schema(data: PolarsLike, schema: Mapping[ColumnName, tuple[str, pl.DataType] ], /) -> pl.DataFrame:
     renaming = {}
     casting = {}
 
@@ -141,6 +145,13 @@ def apply_table_schema(data: PolarsLike, schema: Mapping[ColumnName: tuple[str, 
         .cast(casting, strict=True)
     )
     return dataframe
+
+def add_calculated_columns(data: PolarsLike, columns: Mapping[str, Sequence], /) -> pl.DataFrame:
+    output = transform_dataframe(data).with_columns([
+        pl.Series(name=name, values=values) for name, values in columns.items()
+    ])
+    return output
+
 
 def to_lowercase(column: ColumnName | pl.Expr, /) -> pl.Expr:
     return to_expr(column).str.to_lowercase()
@@ -162,4 +173,6 @@ def is_partially_filled(*columns: ColumnName | pl.Expr) -> pl.Expr:
 
     return pl.any_horizontal(*filled) & pl.any_horizontal(*not_filled)
 
- 
+
+def write_excel_sheets(excel_filepath: PathLike, sheets: Mapping[str, PolarsLike], /) -> None:
+    ...
