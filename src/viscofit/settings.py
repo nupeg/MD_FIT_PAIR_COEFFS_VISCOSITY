@@ -29,6 +29,10 @@ class Settings:
     filename_start_box_playmol: str
     filename_start_box_lammps: str
     filename_start_box_xyz: str
+
+    npt_steps: int
+    nvt_steps: int
+    num_trajectories: int
     
     @classmethod
     def from_file(cls, filepath: PathLike, /) -> Self:

@@ -5,7 +5,8 @@ from typing import (
     Mapping, 
     Iterable,
     Annotated,
-    Final
+    Final,
+    Hashable
 )
 
 from os import PathLike
@@ -43,7 +44,7 @@ from viscofit.datahub import (
     parse_playmol_start_box_template    
 )
 from viscofit.tables import apply_table_schema
-from viscofit.protocols import MixtureRule
+from viscofit.protocols import MixtureRule, IdentityHashing
 
 BOLTZMANN_CONSTANT: Annotated[float, 'J/K'] = 1.380649e-23
 
@@ -52,6 +53,8 @@ ANGSTROM_TO_METER:      Final[float] = 1e-10
 PA_S_TO_CENTIPOISE:     Final[float] = 1000
 FEMTOSECOND_TO_SECOND:  Final[float] = 1e-15
 
+AtomName:           TypeAlias = str
+IntID:              TypeAlias = int
 Count:              TypeAlias = int
 Command:            TypeAlias = str
 MoleculeFilepath:   TypeAlias = PathLike
@@ -61,18 +64,17 @@ class BoxDimensions(NamedTuple):
     y: float
     z: float
 
-class SimulationFiles(NamedTuple):
-    simulation: str
+class SimulationFileNames(NamedTuple):
+    simulation_input: str
     coeffs: str
     start_box_playmol: str
     start_box_lammps: str
     start_box_xyz: str
 
-
-@dataclass(slots=True, frozen=True)
-class PairCoeff:
-    atom_type_01: str
-    atom_type_02: str
+@dataclass(slots=True, frozen=True, eq=False)
+class PairCoeff(IdentityHashing):
+    atom_type_01: AtomName
+    atom_type_02: AtomName
     sigma: float
     epsilon: float
 
@@ -85,20 +87,41 @@ class PairCoeff:
         return not self.is_self
 
     @property
-    def atom_types(self) -> tuple[str, str]:
+    def atom_types(self) -> tuple[AtomName, AtomName]:
         return sorted_tuple((self.atom_type_01, self.atom_type_02))
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, PairCoeff) and self.atom_types == other.atom_types
+    @property
+    def identity(self) -> Hashable:
+        return self.atom_types
 
-    def __hash__(self)-> int:
-        return hash(self.atom_types)
+@dataclass(slots=True, frozen=True, eq=False)
+class BondType(IdentityHashing): 
+    atom_types: tuple[AtomName, AtomName]
+    style: str
+    args: tuple[float, ...]
+
+    @property
+    def identity(self) -> Hashable:
+        return sorted_tuple(self.atom_types), self.style, self.args
+
+@dataclass(slots=True, frozen=True, eq=False)
+class AngleType(IdentityHashing):
+    atom_types: tuple[AtomName, AtomName, AtomName]
+    style: str
+    args: tuple[float, ...]
+
+    @property
+    def identity(self) -> Hashable:
+        return self.atom_types, self.style, self.args
+
 
 @dataclass(slots=True, frozen=True)
 class MoleculeData:
     name: str
     filepath: Path
-    atom_types: tuple[str, ...]
+    atom_types: tuple[AtomName, ...]
+    bond_types: tuple[BondType, ...]
+    angle_types: tuple[AngleType, ...]
 
 @dataclass(slots=True, frozen=True)
 class MixtureData:
@@ -110,32 +133,51 @@ class MixtureData:
     @property
     def packs(self) -> dict[MoleculeFilepath, int]:
         return {
-            Path(mol.filepath): count for mol, count in self.compositions.items() 
+            filename(mol.filepath): count for mol, count in self.compositions.items() 
         }
 
     @property
-    def atom_indices(self) -> dict[str, int]:
+    def atom_indices(self) -> dict[IntID, AtomName]:
         full_atom_types = (
-            atom_type for mol in keys(self.compositions) for atom_type in mol.atom_types
+            atom_type for molecule in keys(self.compositions) for atom_type in molecule.atom_types
         )
         return enumerate_unique(full_atom_types)
 
     @property
     def molecule_filepaths(self) -> list[Path]:
-        return [Path(mol.filepath) for mol in self.compositions]
+        return [
+            Path(molecule.filepath) for molecule in self.compositions
+        ]
 
     @property
-    def atom_types(self) -> list[str]:
+    def atom_types(self) -> list[AtomName]:
         return sorted({atom_type for molecule in self.compositions for atom_type in molecule.atom_types})
 
+    @property
+    def bond_coeffs(self) -> dict[IntID, tuple[float, ...]]:
+        bonds = (
+            bond_type for molecule in self.compositions for bond_type in molecule.bond_types
+        ) 
+        return {index: bond_type.args for index, bond_type in enumerate_unique(bonds).items() }
+
+    @property
+    def angle_coeffs(self) -> dict[IntID, tuple[float, ...]]:
+        angles = (
+            angle_type for molecule in self.compositions for angle_type in molecule.angle_types
+        )  
+        return {index: angle_type.args for index, angle_type in enumerate_unique(angles).items() }
+  
 @dataclass(slots=True, frozen=True)
 class SimulationSetup:
     folder_path: Path
-    files: SimulationFiles
+    files: SimulationFileNames
     box: BoxDimensions
     mixture: MixtureData
-    coeffs: list[PairCoeff]
-    
+    pair_coeffs: list[PairCoeff]
+    npt_steps: int
+    nvt_steps: int
+    num_trajectories: int
+
     @property
     def temperature(self) -> float:
         return self.mixture.temperature 
@@ -158,7 +200,7 @@ class SimulationSetup:
 
     @property
     def simulation_filepath(self) -> Path:
-        return Path(self.folder_path).joinpath(self.files.simulation)
+        return Path(self.folder_path).joinpath(self.files.simulation_input)
 
     @property
     def coeffs_filepath(self) -> Path:
@@ -173,8 +215,18 @@ class SimulationSetup:
         return self.mixture.packs
     
     @property
-    def atom_indices(self) -> dict[str, int]:
+    def atom_indices(self) -> dict[IntID, AtomName]:
         return self.mixture.atom_indices
+
+    @property
+    def bond_coeffs(self) -> dict[IntID, tuple[float, ...]]: 
+        return self.mixture.bond_coeffs
+
+    @property
+    def angle_coeffs(self) -> dict[IntID, tuple[float, ...]]: 
+        return self.mixture.angle_coeffs
+
+    
 
 @dataclass(slots=True, frozen=True)
 class ViscosityAssets:
@@ -252,32 +304,76 @@ def write_start_box_file(filepath: PathLike, packs: Mapping[MoleculeFilepath, Co
     
     Path(filepath).write_text(content)
 
-def write_coeffs_file(filepath: PathLike, coeffs: Sequence[PairCoeff], atom_types: Mapping[str, int] | Iterable[str], /) -> None:
+def write_coeffs_file(
+        filepath: PathLike, 
+        pair_coeffs: Sequence[PairCoeff], 
+        atom_types: Mapping[IntID, AtomName] | Iterable[AtomName],
+        bond_coeffs: Mapping[IntID, tuple[float, ...]] | Iterable[tuple[float, ...]], 
+        angle_coeffs: Mapping[IntID, tuple[float, ...]] | Iterable[tuple[float, ...]],
+        /
+    ) -> None:
+
     if not isinstance(atom_types, Mapping):
         atom_types = enumerate_unique(atom_types)
+
+    if not isinstance(bond_coeffs, Mapping):
+        bond_coeffs = enumerate_unique(bond_coeffs)
+
+    if not isinstance(angle_coeffs, Mapping):
+        angle_coeffs = enumerate_unique(angle_coeffs)
+
+    # NOTE: Join from tuple[float, ...] to 'v1 v2 v3'
+    bond_coeffs = {
+        index: join_as_text(values, ' ') for index, values in bond_coeffs.items()
+    }
+    angle_coeffs = {
+        index: join_as_text(values, ' ') for index, values in angle_coeffs.items()
+    }
     
     atom_types_text = (
-        f'labelmap atom {index} {atom}' for atom, index in atom_types.items()
+        f'labelmap atom {index} {atom}' for index, atom in atom_types.items()
     ) 
     pair_coeffs_text = (
-        f'pair_coeff {data.atom_type_01} {data.atom_type_02} {data.epsilon} {data.sigma}' for data in coeffs
+        f'pair_coeff {data.atom_type_01} {data.atom_type_02} {data.epsilon} {data.sigma}' for data in pair_coeffs
     )
+    bond_coeffs_text = (
+        f'bond_coeff {index} {values}' for index, values in bond_coeffs.items()
+    )
+    angle_coeffs_text = (
+        f'angle_coeff {index} {values}' for index, values in angle_coeffs.items()
+    )   
 
     atom_types_text = join_as_text(atom_types_text, '\n')
     pair_coeffs_text = join_as_text(pair_coeffs_text, '\n')
+    bond_coeffs_text = join_as_text(bond_coeffs_text, '\n')
+    angle_coeffs_text = join_as_text(angle_coeffs_text, '\n')
 
     content = parse_coefficients_template(
         atom_types_text, 
-        pair_coeffs_text
+        pair_coeffs_text,
+        bond_coeffs_text,
+        angle_coeffs_text
     )
     Path(filepath).write_text(content)
 
-def write_simulation_file(filepath: PathLike, temperature: float, pressure: float, start_box_file: str, coeffs_file: str) -> None: 
+def write_simulation_file(
+        filepath: PathLike, 
+        temperature: float, 
+        pressure: float, 
+        start_box_file: str, 
+        coeffs_file: str,
+        npt_steps: int,
+        nvt_steps: int,
+        num_trajectories: int
+    ) -> None: 
     content = parse_lammps_viscosity_template(
         temperature,
         pressure,
         start_box_file,
-        coeffs_file
+        coeffs_file,
+        npt_steps,
+        nvt_steps,
+        num_trajectories
     )
     Path(filepath).write_text(content)
 
@@ -402,16 +498,18 @@ def execute_simulation(filepath: PathLike, /, lammps_cmd: Command, new_terminal:
 
 def setup_simulation_files(setup: SimulationSetup, /, playmol_cmd: Command, new_terminal: bool=False) -> None: 
     coeffs_file = filename(setup.coeffs_filepath)
-    start_box_xyz_file = filename(setup.start_box_lammps_filepath)
-    start_box_lammps_file = filename(setup.start_box_xyz_filepath)
+    start_box_xyz_file = filename(setup.start_box_xyz_filepath)
+    start_box_lammps_file = filename(setup.start_box_lammps_filepath)
 
     root = setup_dir(setup.folder_path, clear=True, create=True)
     copied_molecule_filepaths = copy_files(*setup.molecule_filepaths, destination_folder=root)
     
     write_coeffs_file(
         setup.coeffs_filepath,
-        setup.coeffs,
-        setup.atom_indices)
+        setup.pair_coeffs,
+        setup.atom_indices,
+        setup.bond_coeffs,
+        setup.angle_coeffs)
 
     write_start_box_file(
         setup.start_box_playmol_filepath,
@@ -425,7 +523,10 @@ def setup_simulation_files(setup: SimulationSetup, /, playmol_cmd: Command, new_
         setup.temperature,
         setup.pressure,
         start_box_lammps_file,
-        coeffs_file)
+        coeffs_file,
+        setup.npt_steps,
+        setup.nvt_steps,
+        setup.num_trajectories)
 
     ensure_file_exists(
         *copied_molecule_filepaths,
@@ -437,7 +538,7 @@ def setup_simulation_files(setup: SimulationSetup, /, playmol_cmd: Command, new_
         setup.start_box_playmol_filepath, 
         playmol_cmd, 
         new_terminal=new_terminal)
-
+    
     ensure_file_exists(
         setup.start_box_lammps_filepath,
         setup.start_box_xyz_filepath)
@@ -563,8 +664,12 @@ def create_simulation_setups(
         systems: Sequence[MixtureData],
         coeffs: Sequence[PairCoeff],
         box: BoxDimensions,
-        files: SimulationFiles, 
-        base_folder: PathLike
+        files: SimulationFileNames, 
+        base_folder: PathLike,
+        npt_steps: int,
+        nvt_steps: int,
+        num_trajectories: int
+
     ) -> list[SimulationSetup]: 
     
     base_folder = Path(base_folder)
@@ -580,13 +685,15 @@ def create_simulation_setups(
         mixture_coeffs = [
             coeffs_mapping[pair] for pair in atom_type_pairs(mixture.atom_types)
         ]
-
         setup = SimulationSetup(
             folder_path=folder_path,
             files=files,
             box=box,
             mixture=mixture,
-            coeffs=mixture_coeffs
+            pair_coeffs=mixture_coeffs,
+            npt_steps=npt_steps,
+            nvt_steps=nvt_steps,
+            num_trajectories=num_trajectories
         )
         simulations.append(setup)
     return simulations

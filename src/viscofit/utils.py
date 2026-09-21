@@ -242,12 +242,13 @@ def setup_dir(folder_path: PathLike, /, create: bool=False, clear: bool=False) -
 
     return folder_path
 
-def enumerate_unique(values: Iterable[TK], /) -> dict[TK, int]:
+def enumerate_unique(values: Iterable[TK], /) -> dict[int, TK]:
     ordering = {}
     for value in values:
         if value in ordering:
             continue
-        ordering[value] = len(ordering) + 1
+        index = len(ordering) + 1
+        ordering[index] = value
     return ordering
 
 def ensure_not_duplicates(values: Iterable[Any], /) -> None:

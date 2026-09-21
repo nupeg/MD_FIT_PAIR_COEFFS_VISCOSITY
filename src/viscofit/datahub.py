@@ -270,18 +270,27 @@ def load_systems(source: DataContext, /) -> pl.DataFrame:
         'TEMPERATURE_KELVIN':   (SystemSchema.TEMPERATURE,  pl.Float64),
         'PRESSURE_ATM':         (SystemSchema.PRESSURE,     pl.Float64),
         'VISCOSITY_CP':         (SystemSchema.VISCOSITY,    pl.Float64),
-        'REFERENCE':            (SystemSchema.REFERENCE,    pl.String)
+        'REFERENCE':            (SystemSchema.REFERENCE,    pl.String),
+        'ACTIVE':               ('ACTIVE',                  pl.String),
     })
     dataframe = dataframe.with_columns(
-        pl.col('EXPERIMENT', SystemSchema.ELECTROLYTE, SystemSchema.REFERENCE).str.strip_chars()
+        pl.col('EXPERIMENT', SystemSchema.ELECTROLYTE, SystemSchema.REFERENCE).str.strip_chars(),
+        pl.col('ACTIVE').replace_strict({
+            'TRUE': True,
+            'FALSE': False
+        },
+        return_dtype=pl.Boolean)
     )
+
     dataframe = dataframe.join(
         load_electrolytes_meta(),
         on=SystemSchema.ELECTROLYTE,
+        how='left',
         validate='m:1'
     )
     dataframe = dataframe.filter(
-        pl.col('EXPERIMENT') == pl.lit(source)
+        (pl.col('EXPERIMENT') == pl.lit(source)) &
+        (pl.col('ACTIVE'))
     )
     return dataframe
 
@@ -313,16 +322,17 @@ def extract_atom_types(filepath: PathLike, /, raise_empty: bool=False) -> tuple[
     atom_types: list[str] = []
 
     for line_index, line in enumerate(lines, start=1):
-        if line.startswith(flag):
-            try:
-                atom_type = split_selecting(line, 1)
-            except IndexError:
-                raise RuntimeError(
-                    f'Cannot extract atom-type value from line {line_index}.\n'
-                    f'Please, fix this file: {filepath!r}.\n'
-                    f'The line: {line!r}'
-                )
-            atom_types.append(atom_type)
+        if not line.startswith(flag):
+            continue
+        try:
+            atom_type = split_selecting(line, 1)
+        except IndexError:
+            raise RuntimeError(
+                f'Cannot extract atom-type value from line {line_index}.\n'
+                f'Please, fix this file: {filepath!r}.\n'
+                f'The line: {line!r}'
+            )
+        atom_types.append(atom_type)
 
     if raise_empty and not atom_types:
         raise ValueError(
@@ -331,11 +341,88 @@ def extract_atom_types(filepath: PathLike, /, raise_empty: bool=False) -> tuple[
         )
     return tuple(atom_types)
 
+def extract_bond_types(filepath: PathLike, /, raise_empty: bool=False) -> tuple[dict, ...]:
+    lines = (
+        line.strip() for line in read_text(filepath).splitlines()
+    )
 
-def parse_coefficients_template(atom_types: str, pair_coeffs: str, /) -> str:
+    flag = 'bond_type'
+    bond_types: list[dict] = []
+
+    for line_index, line in enumerate(lines, start=1):
+        if not line.startswith(flag):
+            continue
+        try:
+            tokens = str.split(line)
+
+            atom_types = tokens[1], tokens[2]
+            style = tokens[3]
+            args = tokens[4:]
+
+            bond_type = {
+                'style': str.strip(style),
+                'atom_types': tuple(str.strip(atom_type) for atom_type in atom_types),
+                'args': tuple(float(value) for value in args)
+            }
+        except IndexError:
+            raise RuntimeError(
+                f'Cannot extract bond-type structure from line {line_index}.\n'
+                f'Please, fix this file: {filepath!r}.\n'
+                f'The line: {line!r}'
+            )
+        bond_types.append(bond_type)
+
+    if raise_empty and not bond_types:
+        raise ValueError(
+            f'No bond-type found in {filepath!r}. '
+            f'Expected line(s) starting with the literal flag {flag!r}.'
+        )
+    return tuple(bond_types)
+
+def extract_angle_types(filepath: PathLike, /, raise_empty: bool=False) -> tuple[dict, ...]:
+    lines = (
+        line.strip() for line in read_text(filepath).splitlines()
+    )
+
+    flag = 'angle_type'
+    angle_types: list[dict] = []
+
+    for line_index, line in enumerate(lines, start=1):
+        if not line.startswith(flag):
+            continue
+        try:
+            tokens = str.split(line)
+
+            atom_types = tokens[1], tokens[2], tokens[3]
+            style = tokens[4]
+            args = tokens[5:]
+
+            angle_type = {
+                'style': str.strip(style),
+                'atom_types': tuple(str.strip(atom_type) for atom_type in atom_types),
+                'args': tuple(float(value) for value in args)
+            }
+        except IndexError:
+            raise RuntimeError(
+                f'Cannot extract angle-type structure from line {line_index}.\n'
+                f'Please, fix this file: {filepath!r}.\n'
+                f'The line: {line!r}'
+            )
+        angle_types.append(angle_type)
+
+    if raise_empty and not angle_types:
+        raise ValueError(
+            f'No angle-type found in {filepath!r}. '
+            f'Expected line(s) starting with the literal flag {flag!r}.'
+        )
+    return tuple(angle_types)
+
+def parse_coefficients_template(atom_types: str, pair_coeffs: str, bond_coeffs: str, angle_coeffs: str, /) -> str:
     values = {
         'INPUT_ATOM_TYPES_DESCRIPTION': atom_types,
-        'INPUT_PAIR_COEFFS': pair_coeffs
+        'INPUT_PAIR_COEFFS': pair_coeffs,
+        'INPUT_BOND_COEFFS': bond_coeffs,
+        'INPUT_ANGLE_COEFFS': angle_coeffs
     }
     template_text = read_text(FILEPATH_COEFFS_TEMPLATE)
     return Template(template_text).safe_substitute(values)
@@ -351,12 +438,24 @@ def parse_playmol_start_box_template(includes: str, box_dimensions: str, packs: 
     template_text = read_text(FILEPATH_PLAYMOL_BOX_TEMPLATE)
     return Template(template_text).safe_substitute(values)
 
-def parse_lammps_viscosity_template(temperature: str, pressure: str, start_box_file: str, coeffs_file: str, /) -> str:
+def parse_lammps_viscosity_template(
+        temperature: str, 
+        pressure: str, 
+        start_box_file: str, 
+        coeffs_file: str,
+        npt_steps: str,
+        nvt_steps: str,
+        num_trajectories: str,
+        /
+    ) -> str:
     values = {
         'INPUT_TEMPERATURE': temperature,
         'INPUT_PRESSURE': pressure,
         'INPUT_START_BOX_FILE': start_box_file,
-        'INPUT_COEFFS_FILE': coeffs_file
+        'INPUT_COEFFS_FILE': coeffs_file,
+        'INPUT_NPT_STEPS': npt_steps,
+        'INPUT_NVT_STEPS': nvt_steps,
+        'INPUT_NUM_TRAJECTORIES': num_trajectories
     }
     template_text = read_text(FILEPATH_LAMMPS_VISCOSITY_TEMPLATE)
     return Template(template_text).safe_substitute(values)

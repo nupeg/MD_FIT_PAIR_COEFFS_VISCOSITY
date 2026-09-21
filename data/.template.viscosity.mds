@@ -1,26 +1,22 @@
 #------------------------------------------------------
 #	USER-INPUTS
 #------------------------------------------------------
-             	
-variable    	Temperature	    equal  ${INPUT_TEMPERATURE}
-variable    	Pressure	    equal  ${INPUT_PRESSURE}                      
-variable        StartBoxFile    string ${INPUT_START_BOX_FILE} 
-variable        CoeffsFile      string ${INPUT_COEFFS_FILE}
+
+variable        StartBoxFile    string  ${INPUT_START_BOX_FILE} 
+variable        CoeffsFile      string  ${INPUT_COEFFS_FILE}           	
+variable    	Temperature	    equal   ${INPUT_TEMPERATURE}
+variable    	Pressure	    equal   ${INPUT_PRESSURE}                     
+variable        NptSteps        equal   ${INPUT_NPT_STEPS}
+variable        NvtSteps        equal   ${INPUT_NVT_STEPS}
+variable        NumTrajectories equal   ${INPUT_NUM_TRAJECTORIES}
 
 #------------------------------------------------------
 #	INITIALIZING INTERNAL VARIABLES & LOOP
 #------------------------------------------------------
 
-variable    StartStep       index 1 
-variable    NumTrajectorys 	index 30
-variable	RandomState	    index 100 	
-variable	OneMillion	    equal 1.0E6
-variable	NptSteps        equal 1.0 * v_OneMillion	
-variable	NvtSteps	    equal 2.0 * v_OneMillion	
-variable 	Bootstrap 	    loop ${StartStep} ${NumTrajectorys}
+variable	RandomState	    equal 12345 	
+variable 	Bootstrap 	    loop ${NumTrajectories}
 
-
-			                                
 
 #------------------------------------------------------
 #	SIMULATION-INIT
@@ -28,10 +24,10 @@ variable 	Bootstrap 	    loop ${StartStep} ${NumTrajectorys}
 
 label InitLoopPoint
 
-variable Seed equal ceil(random(1,1000000,${RandomState}))
+variable Seed equal ceil(random(1,1000000,v_RandomState))
 	
 print "================================================"
-print " Bootstrap trajectory ${Bootstrap}/${NumTrajectorys}"
+print " Bootstrap trajectory ${Bootstrap}/${NumTrajectories}"
 print "================================================"
 print "Velocity random state: ${Seed}"
 
@@ -75,7 +71,6 @@ minimize 		1.0e-4 1.0e-6 100 1000
 #------------------------------------------------------
 reset_timestep 0
 
-fix             tip4p water shake 0.0001 100 0 b 1 a 1	
 velocity     	all create ${Temperature} ${Seed} mom yes rot yes dist gaussian
 
 fix		        NPT all npt temp ${Temperature} ${Temperature} $(100*dt) iso ${Pressure} ${Pressure} $(1000*dt)  

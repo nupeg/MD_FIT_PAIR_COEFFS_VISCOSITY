@@ -56,7 +56,10 @@ def pure_water_simulations(config: Settings, /) -> None:
         coeffs=coeffs,
         box=simulation_inputs.box,
         files=simulation_inputs.files,
-        base_folder=workspace
+        base_folder=workspace,
+        npt_steps=simulation_inputs.npt_steps,
+        nvt_steps=simulation_inputs.nvt_steps,
+        num_trajectories=simulation_inputs.num_trajectories
     )
     setup_simulations_parallel(simulations, simulation_inputs.playmol_cmd)
     execute_simulations_parallel(simulations, simulation_inputs.lammps_cmd)
@@ -64,8 +67,8 @@ def pure_water_simulations(config: Settings, /) -> None:
     viscosity_assets = calculate_viscosity_parallel(simulations, njobs=config.njobs)
 
     calculations = [data.viscosity_average for data in viscosity_assets]
-    references   = [data.reference_viscosity for data in experimental_data]
-
+    references = [data.reference_viscosity for data in experimental_data]
+    
     scores, evaluations = evaluate_predictions(calculations, references, dataframe=systems_dataframe)
 
     write_excel_sheets(FILEPATH_PURE_WATER_RESULT, {
