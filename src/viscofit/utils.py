@@ -38,6 +38,8 @@ from coolname import generate_slug
 import numpy as np
 import numpy.typing as npt
 
+import tqdm as tq
+
 @runtime_checkable
 class SupportsFspath(Protocol):
     def __fspath__(self) -> str: ...
@@ -357,5 +359,11 @@ def measure(values: Sequence[float], /) -> tuple[Average, Uncertainty]:
 
     return average, uncertainty
 
+def list_range(stop: int, /) -> list[int]:
+    return list(range(stop))
+
+def progress_iter(data: Iterable[T], /, total: Optional[int]=None, desc: Optional[str]=None, unit: Optional[str]=None) -> tq.tqdm:
+    unit = coalesce(unit, 'it')
+    return tq.tqdm(data, desc=desc, unit=unit, total=total, colour='green')
 
 

@@ -69,40 +69,10 @@ def pure_water_simulations(config: Settings, /) -> None:
     calculations = [data.viscosity_average for data in viscosity_assets]
     references = [data.reference_viscosity for data in experimental_data]
     
-    scores, evaluations = evaluate_predictions(calculations, references, dataframe=systems_dataframe)
+    scores, evaluations = evaluate_predictions(references, calculations, dataframe=systems_dataframe)
 
     write_excel_sheets(FILEPATH_PURE_WATER_RESULT, {
         'DATABASE': evaluations,
         'SCORES': scores
     })
     
-def preliminar_tests(config: Settings, /) -> None:
-    '''
-    DOCSTRING
-    '''
-    simulation_inputs = adapt_simulation_inputs(config)
-
-    systems_dataframe = load_systems(DataContext.PRELIMINAR_TEST)
-    coeffs_dataframe = load_coeffs(DataContext.PRELIMINAR_TEST)
-    coeffs_range_dataframe = load_coeffs_range(DataContext.PRELIMINAR_TEST)
-    
-    coeffs_values = adapt_coeffs(coeffs_dataframe)
-    coeffs_ranges = adapt_coeffs_ranges(coeffs_range_dataframe)
-    experimental_data = adapt_experimental_data(systems_dataframe, simulation_inputs.n_particles_water)
-    
-    optimization_result = fit_viscosity_coeffs(
-        experimental_data=experimental_data,
-        coeffs_ranges=coeffs_ranges,
-        folder_path=simulation_inputs.root_folder_path,
-        playmol_cmd=simulation_inputs.playmol_cmd,
-        lammps_cmd=simulation_inputs.lammps_cmd,
-        box=simulation_inputs.box,
-        files=simulation_inputs.files,
-        n_trials=...,
-        checkpoint_folder_path=...,
-        coeffs_values=coeffs_values,
-        optimize_metric=mean_squared_error,
-        checkpoint_name='preliminar_tests',
-        show_progress_bar=True,
-        greater_is_better=False,
-    )

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import polars as pl
 
 import scipy.optimize as opt
+import scipy.integrate as spint
 
 import numpy as np
 import numpy.typing as npt
@@ -29,9 +30,11 @@ from viscofit.utils import (
     setup_dir, 
     copy_files,
     parse_cmd,
+    list_range,
     search_files, 
     join_as_text,
     execute_script,
+    progress_iter,
     sorted_tuple,
     enumerate_unique,
     ensure_file_exists,
@@ -48,10 +51,12 @@ from viscofit.protocols import MixtureRule, IdentityHashing
 
 BOLTZMANN_CONSTANT: Annotated[float, 'J/K'] = 1.380649e-23
 
-ATM_TO_PA:              Final[float] = 101325
-ANGSTROM_TO_METER:      Final[float] = 1e-10
-PA_S_TO_CENTIPOISE:     Final[float] = 1000
-FEMTOSECOND_TO_SECOND:  Final[float] = 1e-15
+ATM_TO_PA:                  Final[float] = 101325
+ANGSTROM_TO_METER:          Final[float] = 1e-10
+PA_S_TO_CENTIPOISE:         Final[float] = 1000
+FEMTOSECOND_TO_SECOND:      Final[float] = 1e-15
+VISCOSITY_CUTOFF_TIME_FS:   Final[float] = 200_000
+
 
 AtomName:           TypeAlias = str
 IntID:              TypeAlias = int
@@ -389,21 +394,21 @@ def autocorrelation_function(series: npt.ArrayLike, /) -> npt.NDArray:
     return autocorrelation.ravel()
 
 def read_trajectory_data(filepath: PathLike, /) -> TrajectoryData:
-    data = pl.read_csv(filepath)
+    data = pl.read_csv(filepath, separator='|')
     data = apply_table_schema(data, {
-        'pxy':  ('pxy',  pl.Float64),
-        'pyz':  ('pyz',  pl.Float64),
-        'pxz':  ('pxz',  pl.Float64),
-        'pxx':  ('pxx',  pl.Float64),
-        'pyy':  ('pyy',  pl.Float64),
-        'pzz':  ('pzz',  pl.Float64),
-        'vol':  ('vol',  pl.Float64),
-        'temp': ('temp', pl.Float64),
-        'dt':   ('dt',   pl.Float64)
+        'pxy':          ('pxy',         pl.Float64),
+        'pyz':          ('pyz',         pl.Float64),
+        'pxz':          ('pxz',         pl.Float64),
+        'pxx':          ('pxx',         pl.Float64),
+        'pyy':          ('pyy',         pl.Float64),
+        'pzz':          ('pzz',         pl.Float64),
+        'volume':       ('volume',      pl.Float64),
+        'temperature':  ('temperature', pl.Float64),
+        'timestep':     ('timestep',    pl.Float64)
     }).with_columns(
         pl.col('pxy', 'pyz', 'pxz', 'pxx', 'pyy', 'pzz').mul(ATM_TO_PA),
-        pl.col('vol').mul(ANGSTROM_TO_METER**3),
-        pl.col('dt').mul(FEMTOSECOND_TO_SECOND)
+        pl.col('volume').mul(ANGSTROM_TO_METER**3),
+        pl.col('timestep').mul(FEMTOSECOND_TO_SECOND)
     ).with_columns(
         ( (pl.col('pxx') - pl.col('pyy')) / 2 ).alias('pxx_yy'),
         ( (pl.col('pyy') - pl.col('pzz')) / 2 ).alias('pyy_zz'),
@@ -417,11 +422,11 @@ def read_trajectory_data(filepath: PathLike, /) -> TrajectoryData:
     pyy_zz  = data['pyy_zz'].to_numpy()
     pzz_xx  = data['pzz_xx'].to_numpy()
 
-    volume = np.mean(data['vol'])
-    timestep = np.mean(data['dt'])
-    temperature = np.mean(data['temp'])
+    volume = np.mean(data['volume'].to_numpy())
+    timestep = np.mean(data['timestep'].to_numpy())
+    temperature = np.mean(data['temperature'].to_numpy())
 
-    data = TrajectoryData(
+    output = TrajectoryData(
         pxy=pxy,
         pyz=pyz,
         pxz=pxz,
@@ -432,7 +437,7 @@ def read_trajectory_data(filepath: PathLike, /) -> TrajectoryData:
         volume=volume,
         temperature=temperature
     )
-    return data
+    return output
 
 def log_b(x: npt.ArrayLike, a: float, b: float, /) -> npt.NDArray:
     x = np.asarray(x)
@@ -466,7 +471,8 @@ def estimate_viscosity(curves: Iterable[npt.ArrayLike], /) -> float:
         average_curve, 
         sigma=sigma, 
         bounds=bounds, 
-        method='trf'
+        method='trf',
+        x_scale='jac'
     )
 
     viscosity = A * alpha * tal_01 + A * (1 - alpha) * tal_02
@@ -543,7 +549,7 @@ def setup_simulation_files(setup: SimulationSetup, /, playmol_cmd: Command, new_
         setup.start_box_lammps_filepath,
         setup.start_box_xyz_filepath)
 
-def calculate_viscosity_assets(simulation_folder_path: PathLike, /) -> ViscosityAssets:
+def calculate_viscosity_assets(simulation_folder_path: PathLike, /, progress: bool=False) -> ViscosityAssets:
     simulation_folder_path = Path(simulation_folder_path)
 
     trajectory_files = search_files(simulation_folder_path, r'*.RUN')
@@ -554,7 +560,12 @@ def calculate_viscosity_assets(simulation_folder_path: PathLike, /) -> Viscosity
 
     viscosity_curves: list[npt.NDArray] = []
 
-    for trajectory in map(read_trajectory_data, trajectory_files):
+    trajectories = map(read_trajectory_data, trajectory_files)
+
+    if progress:
+        trajectories = progress_iter(trajectories, total=trajectory_count, desc='Reading trajectories', unit='File')
+    
+    for trajectory in trajectories:
         autocorrelations = np.array([
             autocorrelation_function(trajectory.pxy),
             autocorrelation_function(trajectory.pyz),
@@ -568,15 +579,21 @@ def calculate_viscosity_assets(simulation_folder_path: PathLike, /) -> Viscosity
 
         viscosity_curve: Annotated[npt.NDArray, 'cP'] = (
             PA_S_TO_CENTIPOISE * 
-            green_kubo_constant * np.trapezoid(average_autocorrelation) * trajectory.timestep
+            green_kubo_constant * spint.cumulative_trapezoid(average_autocorrelation, initial=0.0) * trajectory.timestep
         )
-        viscosity_curves.append(viscosity_curve)
-        
+        viscosity_curve_cut  = viscosity_curve[:VISCOSITY_CUTOFF_TIME_FS]
+        viscosity_curves.append(viscosity_curve_cut )
+    
     # NOTE: Bootstrap
     viscosity_estimates: list[float] = []
     viscosity_bootstraps: list[npt.NDArray] = []
 
-    for _ in range(1001):
+    bootstraps = list_range(1001)
+
+    if progress:
+        bootstraps = progress_iter(bootstraps, desc='Bootstrap', unit='Step')
+
+    for _ in bootstraps:
         samples = sample_with_replacement(viscosity_curves)
         estimate = estimate_viscosity(samples)
 

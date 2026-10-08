@@ -175,4 +175,15 @@ def is_partially_filled(*columns: ColumnName | pl.Expr) -> pl.Expr:
 
 
 def write_excel_sheets(excel_filepath: PathLike, sheets: Mapping[str, PolarsLike], /) -> None:
-    ...
+    excel_filepath = Path(excel_filepath)
+    excel_filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    options = {
+        'nan_inf_to_errors': True
+    }
+    with xlw.Workbook(excel_filepath, options) as workbook:
+        for sheet_name, data in sheets.items():
+            transform_dataframe(data).write_excel(
+                workbook=workbook,
+                worksheet=sheet_name,
+            )

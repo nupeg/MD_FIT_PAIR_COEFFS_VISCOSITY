@@ -79,11 +79,11 @@ thermo_modify	flush yes
 thermo_style	custom step time density temp press etotal 
 thermo		    10000
 
-neigh_modify 	every 2 delay 0 check yes
+neigh_modify every 2 delay 0 check yes one 5000
 
-fix equilibrium all print 1000 "$(dt) $(step) $(time) $(density) $(temp) $(press) $(etotal)" \
-    file npt_${Bootstrap}.EQ \
-    title "dt step time density temperature pressure total_energy" \
+fix equilibrium all print 1000 "$(dt)|$(step)|$(time)|$(density)|$(temp)|$(press)|$(etotal)" &
+    file npt_${Bootstrap}.EQ &
+    title "timestep|step|time|density|temperature|pressure|total_energy" &
     screen no
 
 run 		    ${NptSteps}    					 
@@ -104,12 +104,11 @@ thermo_modify	flush yes
 thermo_style	custom step temp vol pxy pyz pxz pxx pyy pzz time etotal
 thermo		    10000
 
-neigh_modify 	every 2 delay 0 check yes
-
-fix simulation all print 1 "$(dt) $(step) $(time) $(temp) $(vol) $(pxy) $(pyz) $(pxz) $(pxx) $(pyy) $(pzz) $(etotal)" \
-    file traj_${Bootstrap}.RUN \
-    title "dt step time temperature volume pxy pyz pxz pxx pyy pzz total_energy" \
+fix simulation all print 1 "$(dt)|$(step)|$(time)|$(temp)|$(vol)|$(pxy)|$(pyz)|$(pxz)|$(pxx)|$(pyy)|$(pzz)|$(etotal)" &
+    file traj_${Bootstrap}.RUN &
+    title "timestep|step|time|temperature|volume|pxy|pyz|pxz|pxx|pyy|pzz|total_energy" &
     screen no
+
 
 run	    	    ${NvtSteps}           
 
