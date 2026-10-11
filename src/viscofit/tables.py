@@ -20,8 +20,8 @@ PolarsLike:         TypeAlias = object
 ColumnName:         TypeAlias = str
 TextTransformer:    TypeAlias = Callable[[str], str]
 
-def transform_dataframe(data: PolarsLike, /) -> pl.DataFrame:
-    if isinstance(data, pl.DataFrame):
+def transform_dataframe(data: PolarsLike, /) -> pl.DataFrame | pl.LazyFrame:
+    if isinstance(data, (pl.DataFrame, pl.LazyFrame)):
         return data
     try:
         return pl.DataFrame(data)

@@ -37,9 +37,7 @@ from viscofit.tables import (
 FOLDER_MOLECULES:                   str = r'data/molecules'
 
 FILEPATH_EXPERIMENTS:               str = r'data/experiments.xlsx'
-FILEPATH_SYSTEMS:                   str = r'data/systems.xlsx'
-FILEPATH_COEFFS:                    str = r'data/coeffs.xlsx'
-FILEPATH_ELECTROLYTES_META:         str = r'data/electrolytes_meta.xlsx'
+FILEPATH_ELECTROLYTES_META:         str = r'data/electrolytes.xlsx'
 FILEPATH_COEFFS_TEMPLATE:           str = r'data/.template.coeffs.mds'
 FILEPATH_PLAYMOL_BOX_TEMPLATE:      str = r'data/.template.start_box.mds'
 FILEPATH_LAMMPS_VISCOSITY_TEMPLATE: str = r'data/.template.viscosity.mds'
@@ -113,7 +111,17 @@ class ElectrolyteSchema(TableSchema):
     ANION_CHARGE            = ColumnDef('ANION_CHARGE', int)
     ANION_MOLAR_MASS        = ColumnDef('ANION_MOLAR_MASS', float)
 
-class SystemSchema(ElectrolyteSchema, TableSchema):
+class SimulationConfigSchema(TableSchema):
+    TIMESTEP            = ColumnDef('TIMESTEP', float)
+    NVT_STEPS           = ColumnDef('NVT_STEPS', int)
+    NPT_STEPS           = ColumnDef('NPT_STEPS', int)
+    NUM_TRAJECTORIES    = ColumnDef('NUM_TRAJECTORIES', int)
+    NUM_WATER_PARTICLES = ColumnDef('NUM_WATER_PARTICLES', int)
+    BOX_SIZE_X          = ColumnDef('BOX_SIZE_X', float)
+    BOX_SIZE_Y          = ColumnDef('BOX_SIZE_Y', float)
+    BOX_SIZE_Z          = ColumnDef('BOX_SIZE_Z', float)
+
+class SystemSchema(ElectrolyteSchema, SimulationConfigSchema, TableSchema):
     REFERENCE   = ColumnDef('REFERENCE', str)
     NOTES       = ColumnDef('NOTES', str)
     MOLALITY    = ColumnDef('MOLALITY_MOL_KG', float)
@@ -122,11 +130,10 @@ class SystemSchema(ElectrolyteSchema, TableSchema):
     VISCOSITY   = ColumnDef('VISCOSITY_CP', float)
 
 
+
+
 class DataContext(StrEnum):
     PURE_WATER_SIMULATIONS  = 'pure-water-simulations'
-    FIT_PARAMS              = 'fit_params'
-    PRELIMINAR_TEST         = 'preliminar_tests'
-    EVALUATE_MADRID_2019    = 'evaluate_madrid_2019'
 
 
 
@@ -159,7 +166,7 @@ def read_text(filepath: PathLike, /) -> str:
 
 @cache
 @match_schema(ElectrolyteSchema)
-def load_electrolytes_meta() -> pl.DataFrame:
+def load_electrolytes() -> pl.DataFrame:
     ions = read_excel_file(FILEPATH_ELECTROLYTES_META, sheet_name='IONS') 
     electrolytes = read_excel_file(FILEPATH_ELECTROLYTES_META, sheet_name='ELECTROLYTES')
 
@@ -246,8 +253,8 @@ def load_coeffs(source: DataContext, /) -> pl.DataFrame:
         'EXPERIMENT':       ('EXPERIMENT',              pl.String),
         'ATOM_TYPE_01':     (CoeffSchema.ATOM_TYPE_1,   pl.String),
         'ATOM_TYPE_02':     (CoeffSchema.ATOM_TYPE_2,   pl.String),
-        'EPSILON_VALUE':    (CoeffSchema.EPSILON,       pl.Float64),
-        'SIGMA_VALUE':      (CoeffSchema.SIGMA,         pl.Float64)
+        'EPSILON_KCAL_MOL': (CoeffSchema.EPSILON,       pl.Float64),
+        'SIGMA_ANGSTROMS':  (CoeffSchema.SIGMA,         pl.Float64)
     })
     dataframe = dataframe.with_columns(
         pl.col('EXPERIMENT', CoeffSchema.ATOM_TYPE_1, CoeffSchema.ATOM_TYPE_2).str.strip_chars()
@@ -258,8 +265,38 @@ def load_coeffs(source: DataContext, /) -> pl.DataFrame:
     return dataframe
 
 @cache
+@match_schema(SimulationConfigSchema)
+def load_simulations_config(source: DataContext, /, single: bool=False) -> pl.DataFrame:
+    dataframe = read_excel_file(FILEPATH_EXPERIMENTS, sheet_name='SIMULATIONS-CONFIG')
+    dataframe = apply_table_schema(dataframe, {
+        'EXPERIMENT':           ('EXPERIMENT', pl.String),
+        'TIMESTEP_FS':          (SimulationConfigSchema.TIMESTEP, pl.Float64),
+        'NVT_STEPS':            (SimulationConfigSchema.NVT_STEPS, pl.Int64),
+        'NPT_STEPS':            (SimulationConfigSchema.NPT_STEPS, pl.Int64),
+        'NUM_TRAJECTORIES':     (SimulationConfigSchema.NUM_TRAJECTORIES, pl.Int64),
+        'NUM_WATER_PARTICLES':  (SimulationConfigSchema.NUM_WATER_PARTICLES, pl.Int64),
+        'BOX_SIZE_X_ANGSTROM':  (SimulationConfigSchema.BOX_SIZE_X, pl.Float64),
+        'BOX_SIZE_Y_ANGSTROM':  (SimulationConfigSchema.BOX_SIZE_Y, pl.Float64),
+        'BOX_SIZE_Z_ANGSTROM':  (SimulationConfigSchema.BOX_SIZE_Z, pl.Float64)
+    })
+    dataframe = dataframe.with_columns(
+        pl.col('EXPERIMENT').str.strip_chars()
+    )
+    dataframe = dataframe.filter(
+        pl.col('EXPERIMENT') == pl.lit(source)
+    )
+
+    if single and dataframe.height != 1.0:
+        raise ValueError(
+            f'Expected exactly one simulation configuration for experiment {source!s}, '
+            f'but found {dataframe.height}.'
+        )
+    
+    return dataframe
+
+@cache
 @match_schema(SystemSchema)
-def load_systems(source: DataContext, /) -> pl.DataFrame:
+def load_systems(source: DataContext, /, only_actives: bool=True) -> pl.DataFrame:
     dataframe = read_excel_file(FILEPATH_EXPERIMENTS, sheet_name='SYSTEMS')
     
     dataframe = transform_headers(dataframe, str.strip)
@@ -283,16 +320,21 @@ def load_systems(source: DataContext, /) -> pl.DataFrame:
     )
 
     dataframe = dataframe.join(
-        load_electrolytes_meta(),
+        load_electrolytes(),
         on=SystemSchema.ELECTROLYTE,
         how='left',
         validate='m:1'
     )
     dataframe = dataframe.filter(
         (pl.col('EXPERIMENT') == pl.lit(source)) &
-        (pl.col('ACTIVE'))
+        (pl.lit(not only_actives) | pl.col('ACTIVE'))
+    )
+    dataframe = dataframe.join(
+        load_simulations_config(source, single=True),
+        how='cross'
     )
     return dataframe
+
 
 
 
@@ -443,6 +485,7 @@ def parse_lammps_viscosity_template(
         pressure: str, 
         start_box_file: str, 
         coeffs_file: str,
+        timestep: str,
         npt_steps: str,
         nvt_steps: str,
         num_trajectories: str,
@@ -455,7 +498,8 @@ def parse_lammps_viscosity_template(
         'INPUT_COEFFS_FILE': coeffs_file,
         'INPUT_NPT_STEPS': npt_steps,
         'INPUT_NVT_STEPS': nvt_steps,
-        'INPUT_NUM_TRAJECTORIES': num_trajectories
+        'INPUT_NUM_TRAJECTORIES': num_trajectories,
+        'INPUT_TIMESTEP': timestep
     }
     template_text = read_text(FILEPATH_LAMMPS_VISCOSITY_TEMPLATE)
     return Template(template_text).safe_substitute(values)

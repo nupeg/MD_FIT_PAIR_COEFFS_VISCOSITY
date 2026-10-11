@@ -9,6 +9,8 @@ variable    	Pressure	    equal   ${INPUT_PRESSURE}
 variable        NptSteps        equal   ${INPUT_NPT_STEPS}
 variable        NvtSteps        equal   ${INPUT_NVT_STEPS}
 variable        NumTrajectories equal   ${INPUT_NUM_TRAJECTORIES}
+variable        TimeStep        equal   ${INPUT_TIMESTEP}
+
 
 #------------------------------------------------------
 #	INITIALIZING INTERNAL VARIABLES & LOOP
@@ -26,9 +28,9 @@ label InitLoopPoint
 
 variable Seed equal ceil(random(1,1000000,v_RandomState))
 	
-print "================================================"
-print " Bootstrap trajectory ${Bootstrap}/${NumTrajectories}"
-print "================================================"
+print "==============================================================================================================||"
+print " TRAJECTORY STEP ${Bootstrap}/${NumTrajectories}"
+print "==============================================================================================================||"
 print "Velocity random state: ${Seed}"
 
 
@@ -44,7 +46,7 @@ kspace_style    pppm/tip4p 1.0e-4
 kspace_modify   mesh 10 10 10
 
 # fs
-timestep        1.0 
+timestep        ${TimeStep}
 
 
 #------------------------------------------------------

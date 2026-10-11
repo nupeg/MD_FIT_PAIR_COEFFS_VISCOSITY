@@ -247,7 +247,7 @@ def setup_dir(folder_path: PathLike, /, create: bool=False, clear: bool=False) -
 def enumerate_unique(values: Iterable[TK], /) -> dict[int, TK]:
     ordering = {}
     for value in values:
-        if value in ordering:
+        if value in ordering.values():
             continue
         index = len(ordering) + 1
         ordering[index] = value
