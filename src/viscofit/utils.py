@@ -230,18 +230,11 @@ def setup_dir(folder_path: PathLike, /, create: bool=False, clear: bool=False) -
             raise NotADirectoryError(
                 f'Cannot clear non-existing directory: {folder_path!r}'
             )
-        ensure_no_symlinks(folder_path)
-        
-        for sys_path in folder_path.iterdir():
-
-            if sys_path.is_dir():
-                rmtree(sys_path)
-                continue
-            
-            if sys_path.is_file():
-                sys_path.unlink()
-                continue
-
+        for child in folder_path.iterdir():
+            if child.is_dir() and not child.is_symlink():
+                rmtree(child)
+            else:
+                child.unlink()
     return folder_path
 
 def enumerate_unique(values: Iterable[TK], /) -> dict[int, TK]:

@@ -1,15 +1,28 @@
-from typing import Mapping, Sequence, Hashable, TypeAlias, Final, Annotated
+from typing import (
+    Mapping, 
+    Sequence, 
+    Hashable, 
+    TypeAlias, 
+    Final,
+    Annotated, 
+    Optional,
+    Iterable
+)
 
 from os import PathLike
 from pathlib import Path
 from dataclasses import dataclass
 
 import polars as pl
+import scipy.optimize as opt
+import scipy.integrate as spint
+import numpy as np
+import numpy.typing as npt
 
 from viscofit.protocols import IdentityHashing
 from viscofit.datahub import (
-    get_molecule_filepath,
     write_text,
+    get_molecule_filepath,
     parse_playmol_start_box_template,
     parse_coefficients_template,
     parse_lammps_viscosity_template
@@ -17,13 +30,15 @@ from viscofit.datahub import (
 )
 from viscofit.utils import (
     copy_files, 
-    setup_dir, 
+    setup_dir,
+    filename,
     ensure_file_exists, 
     execute_script, 
-    filename,
     enumerate_unique,
     join_as_text,
-    search_files
+    search_files,
+    measure,
+    sample_with_replacement
 )
 
 
@@ -78,7 +93,7 @@ class SimulationFilenames:
     start_box_lammps: str
     start_box_playmol: str
     start_box_xyz: str
-    nvt_data: str
+    nvt_output_data: str
 
 @dataclass(slots=True, frozen=True)
 class SimulationConditions:
@@ -103,6 +118,18 @@ class SimulationCoefficients:
     pair: Sequence[PairCoefficient]
     bond: Sequence[BondType]
     angle: Sequence[AngleType]
+
+@dataclass(slots=True, frozen=True)
+class SimulationAssets:
+    viscosity_average: float
+    viscosity_uncertainty: float
+    viscosity_bootstrap_values: npt.NDArray
+
+@dataclass(slots=True, frozen=True)
+class SimulationDetails: 
+    viscosity_average_curves: list[npt.NDArray]
+    viscosity_average_curve: npt.NDArray
+    viscosity_standard_curve: npt.NDArray
 
 
 @dataclass(slots=True, frozen=True)
@@ -151,7 +178,7 @@ class Simulation:
 
     @property
     def nvt_data_output_filepath(self) -> Path:
-        return self.data_folder.joinpath(self.filenames.nvt_data)
+        return self.data_folder.joinpath(self.filenames.nvt_output_data)
 
     @property
     def playmol_molecules(self) -> dict[str, int]:
@@ -199,6 +226,13 @@ class Simulation:
 
 
 
+def log_b(x: npt.ArrayLike, a: float, b: float, /) -> npt.NDArray:
+    x = np.asarray(x)
+    return a + b * np.log(x)
+
+def double_exponential(x: npt.ArrayLike, A: float, alpha: float, tal_01: float, tal_02: float, /) -> npt.NDArray:
+    x = np.asarray(x)
+    return A * alpha * tal_01 * ( 1 - np.exp(-x / tal_01) ) + A * (1 - alpha) * tal_02 * ( 1 - np.exp(-x / tal_02) )
 
 def write_playmol_input_file(
         filepath: PathLike,
@@ -289,6 +323,49 @@ def write_coefficients_file(
     )
     write_text(filepath, content)
 
+def autocorrelation_function(series: npt.ArrayLike, /) -> npt.NDArray:
+    series = np.asarray(series)
+    series = series - np.mean(series)
+
+    series_fft = np.fft.fft(series)
+    series_fft_pow = np.abs(series_fft) ** 2 / len(series_fft)
+    series_ifft = np.fft.ifft(series_fft_pow)
+    
+    autocorrelation = series_ifft.real
+    return autocorrelation.ravel()
+
+def estimate_viscosity_value(curves: Iterable[npt.ArrayLike], /) -> float:
+    curves = [
+        np.asarray(curve) for curve in curves
+    ]
+    average_curve = np.mean(curves, axis=0)
+    standard_curve = np.std(curves, axis=0, ddof=1)
+    
+    steps = np.arange(1, standard_curve.size + 1)
+
+    (_, b), _ = opt.curve_fit(log_b, steps, standard_curve)
+    
+    sigma = steps**(b/2)
+
+    bounds = [
+        [0.0, 0.0, 0.0, 0.0], 
+        [np.inf, 1.0, np.inf, np.inf]
+    ]
+
+    (A, alpha, tal_01, tal_02), _ = opt.curve_fit(
+        double_exponential, 
+        steps, 
+        average_curve, 
+        sigma=sigma, 
+        bounds=bounds, 
+        method='trf',
+        x_scale='jac'
+    )
+
+    viscosity = A * alpha * tal_01 + A * (1 - alpha) * tal_02
+    return float(viscosity)
+
+
 def setup_simulation(data: Simulation, playmol_command: str, /, new_terminal: bool=False) -> None:
     setup_dir(data.input_folder, create=True, clear=True)
 
@@ -335,14 +412,16 @@ def setup_simulation(data: Simulation, playmol_command: str, /, new_terminal: bo
         data.coeffs_filepath
     )
 
-def run_simulation(data: Simulation, lammps_command: str, /, new_terminal: bool=False) -> None:
-    if data.simulation_done:
-        return
-    execute_script(
-        data.lammps_input_filepath,
-        lammps_command,
-        new_terminal=new_terminal
-    )
+def run_simulation(data: Simulation, lammps_command: str, /, new_terminal: bool=False, structure_outputs: bool=False) -> None:
+    if not data.simulation_done:
+        setup_dir(data.lammps_folder, clear=True, create=True)
+        execute_script(
+            data.lammps_input_filepath,
+            lammps_command,
+            new_terminal=new_terminal
+        )
+    if structure_outputs:
+        structure_simulation_outputs(data)
 
 def structure_simulation_outputs(data: Simulation, /) -> None:
     if data.outputs_structured:
@@ -382,11 +461,16 @@ def structure_simulation_outputs(data: Simulation, /) -> None:
             'pyy':          'PYY_ATM',
             'pzz':          'PZZ_ATM',
             'total_energy': 'TOTAL_ENERGY_KCAL_MOL',
-        })
-        dataframe = dataframe.with_columns(
-            (pl.lit(index)).alias('TRAJECTORY_ID'),
-            (pl.lit(filepath.stem)).alias('TRAJECTORY_NAME'),
+        }).with_columns(
+            ( (pl.col('PXX_ATM') - pl.col('PYY_ATM')) / 2 ).alias('PXX_YY_ATM'),
+            ( (pl.col('PYY_ATM') - pl.col('PZZ_ATM')) / 2 ).alias('PYY_ZZ_ATM'),
+            ( (pl.col('PZZ_ATM') - pl.col('PXX_ATM')) / 2 ).alias('PZZ_XX_ATM'),
+        ).with_columns(
+            pl.lit(index).alias('TRAJECTORY_ID'),
+            pl.lit(filepath.stem).alias('TRAJECTORY_NAME'),
+        ).with_columns(
             (pl.col('TIME_FS') * FEMTOSECOND_TO_SECOND).alias('TIME_SECONDS'),
+            (pl.col('TIMESTEP_FS') * FEMTOSECOND_TO_SECOND).alias('TIMESTEP_SECONDS'),
             (pl.col('VOLUME_ANGSTROM3') * ANGSTROM_TO_METER**3).alias('VOLUME_M3'),
             (pl.col('PXY_ATM') * ATM_TO_PA).alias('PXY_PASCAL'),
             (pl.col('PYZ_ATM') * ATM_TO_PA).alias('PYZ_PASCAL'),
@@ -394,6 +478,9 @@ def structure_simulation_outputs(data: Simulation, /) -> None:
             (pl.col('PXX_ATM') * ATM_TO_PA).alias('PXX_PASCAL'),
             (pl.col('PYY_ATM') * ATM_TO_PA).alias('PYY_PASCAL'),
             (pl.col('PZZ_ATM') * ATM_TO_PA).alias('PZZ_PASCAL'),
+            (pl.col('PXX_YY_ATM') * ATM_TO_PA).alias('PXX_YY_PASCAL'),
+            (pl.col('PYY_ZZ_ATM') * ATM_TO_PA).alias('PYY_ZZ_PASCAL'),
+            (pl.col('PZZ_XX_ATM') * ATM_TO_PA).alias('PZZ_XX_PASCAL'),
         )
         dataframes.append(dataframe)
 
@@ -403,7 +490,93 @@ def structure_simulation_outputs(data: Simulation, /) -> None:
     final_dataframe = pl.concat(dataframes, how='vertical')
     final_dataframe.sink_parquet(data.nvt_data_output_filepath)
 
-def calculate_viscosity_assets(data: Simulation, /) -> None: 
-    ...
+def calculate_simulation_details(data: Simulation, /, max_steps: Optional[int]=None) -> SimulationDetails:
+    dataframe = pl.scan_parquet(data.nvt_data_output_filepath)
+    dataframe = dataframe.cast({
+        'STEP':                 pl.Int64,
+        'VOLUME_M3':            pl.Float64,
+        'TEMPERATURE_KELVIN':   pl.Float64,
+        'PXX_PASCAL':           pl.Float64,
+        'PYY_PASCAL':           pl.Float64,
+        'PZZ_PASCAL':           pl.Float64,
+        'PXX_YY_PASCAL':        pl.Float64,
+        'PYY_ZZ_PASCAL':        pl.Float64,
+        'PZZ_XX_PASCAL':        pl.Float64,
+        'TIMESTEP_SECONDS':     pl.Float64,
+    })
+    if max_steps is not None:
+        dataframe = dataframe.filter(
+            pl.col('STEP') <= pl.lit(max_steps)
+        )
+    dataframe = dataframe.sort('TRAJECTORY_ID', 'STEP')
+    dataframe = dataframe.collect(engine='auto')
 
 
+    viscosity_average_curves: list[npt.NDArray] = []
+
+    for (_, trajectory) in dataframe.group_by('TRAJECTORY_ID'):
+
+        pxx         = trajectory.get_column('PXX_PASCAL').to_numpy()
+        pyy         = trajectory.get_column('PYY_PASCAL').to_numpy()
+        pzz         = trajectory.get_column('PZZ_PASCAL').to_numpy()
+        pxx_yy      = trajectory.get_column('PXX_YY_PASCAL').to_numpy()
+        pyy_zz      = trajectory.get_column('PYY_ZZ_PASCAL').to_numpy()
+        pzz_xx      = trajectory.get_column('PZZ_XX_PASCAL').to_numpy()
+        volume      = trajectory.get_column('VOLUME_M3').to_numpy()
+        timestep    = trajectory.get_column('TIMESTEP_SECONDS').to_numpy()
+        temperature = trajectory.get_column('TEMPERATURE_KELVIN').to_numpy()
+
+        volume = np.mean(volume)    
+        timestep = np.mean(timestep)
+        temperature = np.mean(temperature)
+        
+        green_kubo_constant = volume / (BOLTZMANN_CONSTANT * temperature)
+
+        autocorrelation = np.array([
+            autocorrelation_function(pxx),
+            autocorrelation_function(pyy),
+            autocorrelation_function(pzz),
+            autocorrelation_function(pxx_yy),
+            autocorrelation_function(pyy_zz),
+            autocorrelation_function(pzz_xx)
+        ])
+        average_autocorrelation = np.mean(autocorrelation, axis=0)
+
+        viscosity_curve = (
+            PA_S_TO_CENTIPOISE * 
+            green_kubo_constant * spint.cumulative_trapezoid(average_autocorrelation, initial=0.0) * timestep
+        )
+        viscosity_average_curves.append(viscosity_curve)
+
+    viscosity_average_curve = np.mean(viscosity_average_curves, axis=0)
+    viscosity_uncertainty_curve = np.std(viscosity_average_curves, axis=0, ddof=1)
+
+    details = SimulationDetails(
+        viscosity_average_curves=viscosity_average_curves,
+        viscosity_average_curve=viscosity_average_curve,
+        viscosity_uncertainty_curve=viscosity_uncertainty_curve
+    )
+    return details
+
+def calculate_simulation_assets(data: Simulation, /, max_steps: Optional[int]=None, bootstraps: Optional[int]=None) -> SimulationAssets:
+    if bootstraps is None:
+        bootstraps = 1000
+
+    details = calculate_simulation_details(data, max_steps=max_steps)
+    viscosity_bootstrap_values: list[float] = []
+    
+    for _ in range(bootstraps + 1):
+        viscosity_bootstrap_curves = sample_with_replacement(details.viscosity_average_curves)
+        viscosity_bootstrap_values.append(
+            estimate_viscosity_value(viscosity_bootstrap_curves)
+        )
+
+    viscosity_bootstrap_values = np.asarray(viscosity_bootstrap_values, dtype=np.float64)
+    viscosity_average, viscosity_uncertainty = measure(viscosity_bootstrap_values)
+
+    assets = SimulationAssets(
+        viscosity_average=viscosity_average,
+        viscosity_uncertainty=viscosity_uncertainty,
+        viscosity_bootstrap_values=viscosity_bootstrap_values
+    )
+    return assets

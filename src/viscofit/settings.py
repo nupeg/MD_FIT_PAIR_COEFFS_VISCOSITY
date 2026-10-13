@@ -1,4 +1,4 @@
-from typing import Any, Self, Mapping, TypeVar
+from typing import Self, TypeVar
 
 from os import PathLike
 from tomllib import load as load_toml
@@ -13,7 +13,10 @@ T = TypeVar('T')
 
 @dataclass(slots=True, frozen=True)
 class Settings:
-    simulations_root_folder: str
+    root_folder: str
+    playmol_command: str
+    lammps_commands: str | list[str]
+    njobs: int | None
     
     @classmethod
     def from_file(cls, filepath: PathLike, /) -> Self:

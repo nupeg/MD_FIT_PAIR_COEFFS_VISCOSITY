@@ -1,5 +1,6 @@
 from typing import Iterator, NamedTuple, TypeAlias, ClassVar
 
+from os import PathLike
 from dataclasses import dataclass   
 from pathlib import Path
 from math import ceil
@@ -12,6 +13,9 @@ from viscofit.molecular_dynamics import (
     PairCoefficient, 
     BoxDimensions,
     SimulationFilenames,
+    SimulationCoefficients,
+    SimulationConditions,
+    SimulationSystem,
     BondType,
     AngleType,
     Molecule,
@@ -71,3 +75,60 @@ class ExperimentRegister:
         )
 
 
+def build_molecule(name: str, /) -> Molecule:
+    ...
+
+def adapt_simulations_from_tables(root: PathLike, systems: PolarsLike, coeffs: PolarsLike, /) -> list[Simulation]:
+    systems = transform_dataframe(systems)
+    coeffs = transform_dataframe(coeffs)
+
+    simulations = []
+    for system in systems.iter_rows(named=True):
+
+
+        solvent_molecule  = build_molecule()
+        cation_molecule   = build_molecule()
+        anion_molecule    = build_molecule()
+        
+        molecules = {...}
+        
+        box = BoxDimensions(
+            x=...,
+            y=...,
+            z=...
+        )
+        filenames = SimulationFilenames(
+            simulation='viscosity.lmp',
+            coeffs='coeffs.lmp',
+            start_box_lammps='start_box.lmp',
+            start_box_playmol='start_box.playmol',
+            start_box_xyz='start_box.xyz',
+            nvt_output_data='nvt_lammps_data.parquet'
+        )
+        conditions = SimulationConditions(
+            temperature=...,
+            pressure=...,
+            timestep=...,
+            nvt_steps=...,
+            npt_steps=...,
+            num_trajectories=...
+        )
+        coeffs = SimulationCoefficients(
+            pair=...,
+            bond=...,
+            angle=...
+        )
+        system = SimulationSystem(
+            box=box,
+            molecules=molecules
+        )
+        simulation = Simulation(
+            root=root,
+            filenames=filenames,
+            conditions=conditions,
+            coeffs=coeffs,
+            system=system
+        )
+        simulations.append(simulation)
+
+    return simulations

@@ -49,26 +49,6 @@ def key_value_table(data: Mapping[Hashable, Any], /, key_column: Optional[Column
         value_column: values(data)
     })
     return dataframe
-
-
-def ensure_not_partially_filled(data: PolarsLike, subsets: Optional[Iterable[ColumnName] | ColumnName]=None) -> pl.DataFrame:
-    dataframe = transform_dataframe(data)
-
-    if subsets is None:
-        subsets = dataframe.columns
-    subsets = list_columns_selection(subsets)
-
-    partially_filled = dataframe.filter(
-        is_partially_filled(*subsets)
-    )
-    if not partially_filled.is_empty():
-        raise ValueError(
-            f'Partially filled rows detected.\n\n'
-            f'Columns checked cannot be partially filled: {subsets}\n'
-            f'Invalid rows: {partially_filled.height}\n\n'
-            f'Sample:\n{partially_filled.head(10)}'
-        )
-    return dataframe
     
 def select_renaming(data: PolarsLike, renamer: Mapping[ColumnName, str], /) -> pl.DataFrame:
     return transform_dataframe(data).select(keys(renamer)).rename(renamer)
@@ -151,27 +131,6 @@ def add_calculated_columns(data: PolarsLike, columns: Mapping[str, Sequence], /)
         pl.Series(name=name, values=values) for name, values in columns.items()
     ])
     return output
-
-
-def to_lowercase(column: ColumnName | pl.Expr, /) -> pl.Expr:
-    return to_expr(column).str.to_lowercase()
-
-def cast_columns(*columns: ColumnName, dtype: pl.DataType) -> list[pl.Expr]:
-    return pl.col(columns).cast(dtype)
-
-def is_filled(column: ColumnName | pl.Expr, /) -> pl.Expr:
-    return to_expr(column).is_not_null()
-
-def is_not_filled(column: ColumnName | pl.Expr, /) -> pl.Expr:
-    return to_expr(column).is_null()
-
-def is_partially_filled(*columns: ColumnName | pl.Expr) -> pl.Expr:
-    cols = [to_expr(col) for col in columns]
-
-    filled = map(is_filled, cols)
-    not_filled = map(is_not_filled, cols)
-
-    return pl.any_horizontal(*filled) & pl.any_horizontal(*not_filled)
 
 
 def write_excel_sheets(excel_filepath: PathLike, sheets: Mapping[str, PolarsLike], /) -> None:
